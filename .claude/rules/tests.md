@@ -6,6 +6,11 @@ paths:
 
 # Tests
 
+- Tests come first (see "Test-first" in CLAUDE.md): write them, watch them fail for the right
+  reason, then implement. Never edit an assertion just to make it pass.
+- Test behavior through public interfaces. Don't assert on private helpers or on mocks of the
+  unit under test.
+
 - Never run the real `claude` CLI, in any test, ever. CI has no claude installed or logged in.
 - Unit tests: inject a fake spawner that emits scripted stdout chunks, stderr, exit codes and
   errors.

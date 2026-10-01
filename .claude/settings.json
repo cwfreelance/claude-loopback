@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "attribution": {
-    "commit": null,
-    "pr": null
+    "commit": "",
+    "pr": ""
   },
   "permissions": {
     "allow": [

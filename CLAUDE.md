@@ -19,12 +19,26 @@ Node 24 · TypeScript (strict) · Hono + @hono/node-server · Zod · Vitest · B
 - `pnpm run lint` / `pnpm run format`: Biome check / Biome check --write
 - `pnpm run typecheck`: `tsc --noEmit` (also type-checks the `.mjs` hook scripts)
 - `pnpm run test`: Vitest, run once
-- `dev` / `build` / `start` are added with the app (Phase 4)
+- `pnpm run dev`: `node --watch src/index.ts` (Node strips TS types natively; loads `.env`)
+- `pnpm run build` / `pnpm start`: `tsc` to `dist/` / run the build
+- `pnpm run token`: print a new random `LOOPBACK_TOKEN`
+
+Imports between `.ts` files use the `.ts` extension (rewritten to `.js` on build). Use only
+erasable TS syntax: no enums, namespaces or constructor parameter properties.
 
 ## Architecture
-Layers (finalized in Phase 3): routes → service (queue, limits) → `ClaudeBackend` interface →
-process runner. `CliBackend` now, `ApiBackend` (BYOK) later; routes never know which one is
-active. Inject the spawner and clock so every layer is testable alone.
+routes → service (queue, limits) → `ClaudeBackend` interface → process runner. `CliBackend`
+now, `ApiBackend` (BYOK) later; routes never know which one is active. Config, logger, clock,
+backend and spawner are injected so every layer is testable alone.
+
+- `src/config.ts`: Zod env schema → frozen `Config`. `src/errors.ts`: `AppError`, code → status.
+- `src/logger.ts`: pino with redaction. `src/clock.ts`: injectable time.
+- `src/app.ts`: `createApp(deps)` (Hono). `src/index.ts`: boot.
+- `src/http/`: middleware, schemas, routes, SSE. `src/service/`: prompt service, queue.
+- `src/backends/`: `types.ts` + `cli/` (args, env, stream parser, classify, probe).
+- `src/process/`: runner, tree kill, temp dirs, PID registry.
+
+The full plan and decision log live in `docs/DECISIONS.md`.
 
 Dev tooling: `.claude/hooks/` (format on edit, commit-message check, stop gate),
 `scripts/commit-format.mjs` (commit rules, shared with `.githooks/commit-msg`).
@@ -38,6 +52,16 @@ Dev tooling: `.claude/hooks/` (format on edit, commit-message check, stop gate),
 - No stack traces, paths or raw stderr in responses. No prompt/output contents in logs.
 - Tests never call the real `claude` CLI. Use a fake spawner or a fake binary.
 - Check CLI flags against `claude --help` for the installed version, not memory.
+
+## Test-first (always)
+1. Spec the behavior and edge cases, including failure paths.
+2. Write tests against the public interface (exported functions, HTTP routes, runner API).
+3. Add stubs with real signatures that `throw new Error("not implemented")`. Run the tests and
+   confirm each new test fails on an assertion or that error, not on an import/typo. A test that
+   passes before the code exists tests nothing, so fix or delete it.
+4. Implement until green.
+5. Never weaken, loosen or delete an assertion to make code pass. If a test was wrong, fix it and
+   say so in the milestone summary.
 
 ## Commit policy (strict)
 - One commit per completed feature or milestone, not per file or small edit.

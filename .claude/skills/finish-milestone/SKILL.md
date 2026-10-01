@@ -23,4 +23,6 @@ design change, stop and ask the user instead.
 
    If the commit hook rejects the message, fix the message. Never bypass the hook.
 5. **Summarize.** Tell the user in 2–3 lines what was built, how it was verified, and anything
-   they should know. Then stop and wait for approval before starting the next milestone.
+   they should know. Include red→green evidence: how many new tests there are, that they
+   failed first (and why), and any test changed after implementation began, with the reason.
+   Then stop and wait for approval before starting the next milestone.
