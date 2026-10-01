@@ -1,31 +1,23 @@
 import type { Hono } from "hono";
-import type { ClaudeBackend, RunResult } from "../backends/types.ts";
+import type { ClaudeBackend } from "../backends/types.ts";
 import type { PromptService } from "../service/prompt-service.ts";
 import { readJsonBody } from "./json.ts";
 import type { AppEnv } from "./middleware.ts";
+import { resultBody } from "./responses.ts";
 import { parsePromptRequest } from "./schemas.ts";
+import { DEFAULT_HEARTBEAT_MS, streamPrompt } from "./sse.ts";
 
 export interface RouteDeps {
   readonly service: PromptService;
   readonly backend: ClaudeBackend;
+  readonly heartbeatMs?: number;
+  readonly streamStallMs: number;
 }
 
-/** The JSON response for a finished run (and the SSE `result` event). */
-export function resultBody(id: string, result: RunResult, queueMs: number) {
-  return {
-    id,
-    text: result.text,
-    ...(result.structuredOutput === undefined ? {} : { structuredOutput: result.structuredOutput }),
-    model: result.model,
-    stopReason: result.stopReason,
-    durationMs: result.durationMs,
-    queueMs,
-    usage: result.usage,
-    costUsd: result.costUsd,
-  };
-}
-
-export function registerRoutes(app: Hono<AppEnv>, { service, backend }: RouteDeps): void {
+export function registerRoutes(
+  app: Hono<AppEnv>,
+  { service, backend, heartbeatMs = DEFAULT_HEARTBEAT_MS, streamStallMs }: RouteDeps,
+): void {
   app.get("/health", (c) => c.json({ status: "ok" }));
 
   app.get("/ready", async (c) => {
@@ -50,5 +42,10 @@ export function registerRoutes(app: Hono<AppEnv>, { service, backend }: RouteDep
     // The request signal aborts when the client disconnects, which kills the CLI run.
     const { result, queueMs } = await service.run(input, { signal: c.req.raw.signal, requestId });
     return c.json(resultBody(requestId, result, queueMs));
+  });
+
+  app.post("/v1/prompt/stream", async (c) => {
+    const input = parsePromptRequest(await readJsonBody(c));
+    return streamPrompt(c, service, input, { heartbeatMs, stallMs: streamStallMs });
   });
 }

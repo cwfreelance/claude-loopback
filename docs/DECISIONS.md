@@ -433,6 +433,23 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   instead of a stack trace.
 - **M7: `/ready` returns 200/503 `{ ready, cli: { loggedIn, version?, reason? }, queue }`** and
   requires the token. `/health` stays public with no detail.
+- **M8: SSE headers are sent only once the request holds a queue slot** (the service's
+  `onQueued`). Validation, policy and queue errors (400/429/503 with `Retry-After`) stay plain
+  JSON responses with a real status. Anything after that is an `error` event with the standard
+  `{ code, message, requestId }` body, then the stream ends.
+- **M8: SSE events are `start {model}`, `delta {text}`, `retry {attempt, maxRetries, delayMs,
+  error}`, then exactly one `result` (same body as the JSON endpoint) or `error`.**
+- **M8: backpressure is end to end.** Each event is awaited as it is written, so a slow client
+  stalls the service loop, the parser, the runner's pull, and finally the CLI's stdout pipe.
+- **M8: the heartbeat is a `: ping` comment every 15 s**, on real timers (it is an I/O
+  keepalive, not logic). It is configurable via `createApp({ heartbeatMs })`, for tests only.
+- **M8 (security review): each SSE write has a stall deadline (`LOOPBACK_STREAM_STALL_MS`,
+  default 30 s).** A client that keeps the connection open but stops reading used to hold its
+  queue slot and temp dir until it disconnected. It still lost its CLI at the timeout, but one
+  stuck script blocked everyone. Now the stream and run are aborted (`cancelled`), the slot is
+  freed and the runner cleans up. Heartbeats are skipped while one is still pending.
+- **For M9 (security review): shutdown must abort open SSE streams / close all connections.**
+  `server.close()` waits forever on a stalled client.
 - **For M9: on shutdown, call `queue.close()` before aborting in-flight requests**, so queued
   clients get `shutting_down` rather than `cancelled`.
 - **For M9 (security review): take a single-instance lock before sweeping, and put the work

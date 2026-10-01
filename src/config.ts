@@ -21,6 +21,8 @@ export interface Config {
   readonly defaultModel: string;
   readonly maxBodyBytes: number;
   readonly rateLimitPerMin: number;
+  /** How long an SSE client may stop reading before the stream and its run are dropped. */
+  readonly streamStallMs: number;
   readonly corsOrigins: readonly string[];
   readonly logLevel: LogLevel;
   readonly logPrompts: boolean;
@@ -128,6 +130,7 @@ const schema = z
     LOOPBACK_DEFAULT_MODEL: z.string().regex(MODEL_NAME, "must be a model alias or id").optional(),
     LOOPBACK_MAX_BODY_BYTES: int(1024, MAX_BODY_BYTES_CAP, 4 * 1024 * 1024),
     LOOPBACK_RATE_LIMIT_PER_MIN: int(1, 10_000, 30),
+    LOOPBACK_STREAM_STALL_MS: int(1000, 600_000, 30_000),
     LOOPBACK_CORS_ORIGINS: list(isOrigin, "an origin such as http://127.0.0.1:3000", []),
     LOOPBACK_LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"], {
@@ -210,6 +213,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
     defaultModel: e.LOOPBACK_DEFAULT_MODEL ?? (e.LOOPBACK_ALLOWED_MODELS[0] as string),
     maxBodyBytes: e.LOOPBACK_MAX_BODY_BYTES,
     rateLimitPerMin: e.LOOPBACK_RATE_LIMIT_PER_MIN,
+    streamStallMs: e.LOOPBACK_STREAM_STALL_MS,
     corsOrigins: Object.freeze(e.LOOPBACK_CORS_ORIGINS),
     logLevel: e.LOOPBACK_LOG_LEVEL,
     logPrompts: e.LOOPBACK_LOG_PROMPTS,

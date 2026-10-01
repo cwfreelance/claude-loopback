@@ -17,7 +17,10 @@ export const RESULT: RunResult = {
 
 interface Script {
   events?: RunEvent[];
+  /** Thrown before any event. */
   error?: Error;
+  /** Thrown after the scripted events. */
+  failAfterEvents?: Error;
   /** When set, the run stays open until release() is called. */
   hold?: boolean;
 }
@@ -60,6 +63,7 @@ export class FakeBackend implements ClaudeBackend {
         { type: "delta", text: "pong" },
         { type: "result", result: RESULT },
       ];
+      if (script.failAfterEvents) throw script.failAfterEvents;
     } finally {
       this.running--;
     }

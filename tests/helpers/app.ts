@@ -54,7 +54,11 @@ export class FakeClock implements Clock {
 }
 
 /** The real app with a captured logger and a fake clock. */
-export function buildApp(env: Record<string, string> = {}, clock = new FakeClock()) {
+export function buildApp(
+  env: Record<string, string> = {},
+  clock = new FakeClock(),
+  options: { heartbeatMs?: number } = {},
+) {
   const lines: string[] = [];
   const destination = new Writable({
     write(chunk, _encoding, callback) {
@@ -72,7 +76,7 @@ export function buildApp(env: Record<string, string> = {}, clock = new FakeClock
     clock,
   });
   const service = createPromptService({ backend, queue, config, clock, logger });
-  const app = createApp({ config, logger, clock, service, backend });
+  const app = createApp({ config, logger, clock, service, backend, ...options });
   return {
     app,
     clock,

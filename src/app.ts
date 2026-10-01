@@ -25,6 +25,8 @@ export interface AppDeps {
   readonly service: PromptService;
   readonly backend: ClaudeBackend;
   readonly clock?: Clock;
+  /** SSE keep-alive interval (default 15 s). */
+  readonly heartbeatMs?: number;
 }
 
 const PUBLIC_PATHS = new Set(["/health"]);
@@ -40,6 +42,7 @@ export function createApp({
   service,
   backend,
   clock = systemClock,
+  heartbeatMs,
 }: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -68,7 +71,12 @@ export function createApp({
   });
   app.use(jsonBody(config.maxBodyBytes));
 
-  registerRoutes(app, { service, backend });
+  registerRoutes(app, {
+    service,
+    backend,
+    streamStallMs: config.streamStallMs,
+    ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
+  });
 
   app.notFound(() => {
     throw new AppError("not_found", "No such route");

@@ -33,6 +33,7 @@ describe("loadConfig", () => {
       defaultModel: "sonnet",
       maxBodyBytes: 4 * 1024 * 1024,
       rateLimitPerMin: 30,
+      streamStallMs: 30_000,
       corsOrigins: [],
       logLevel: "info",
       logPrompts: false,

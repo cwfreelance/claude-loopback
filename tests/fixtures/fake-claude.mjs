@@ -52,6 +52,25 @@ switch (scenario) {
     });
     break;
   }
+  case "delta-flood": {
+    // Streams text deltas as fast as stdout accepts them, forever.
+    emit({ type: "system", subtype: "init", model: "fake-model" });
+    const line = `${JSON.stringify({
+      type: "stream_event",
+      parent_tool_use_id: null,
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "z".repeat(1024) },
+      },
+    })}\n`;
+    const pump = () => {
+      while (process.stdout.write(line)) {}
+      process.stdout.once("drain", pump);
+    };
+    pump();
+    break;
+  }
   case "init-then-hang":
     emit({ type: "system", subtype: "init", model: "fake-model" });
     hang();
