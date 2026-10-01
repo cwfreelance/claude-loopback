@@ -20,3 +20,8 @@ paths:
 - Set `windowsHide: true` so no console windows flash.
 - Cap buffered stdout/stderr. Never forward raw stderr or file paths to clients.
 - Verify every CLI flag against `claude --help` for the installed version, not memory.
+- Isolation flags are mandatory: `--tools "" --permission-mode dontAsk --permission-prompts none
+  --no-session-persistence --safe-mode --restricted --setting-sources "" --strict-mcp-config
+  --disable-slash-commands`. `--safe-mode` alone still loads user plugins.
+- When the CLI's output format is in question, capture a real run (with the user's OK, since
+  it spends usage), redact it into `tests/fixtures/streams/`, and test against that.

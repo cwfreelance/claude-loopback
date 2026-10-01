@@ -133,9 +133,12 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   **→** With no tools, prompt injection has nothing to drive.
 - [x] **Permission mode.** `--permission-mode dontAsk` + `--permission-prompts none`.
   **→** Explicit. Anything that would prompt is denied instead of hanging.
-- [x] **Isolation from user config.** `--safe-mode --strict-mcp-config --disable-slash-commands`.
+- [x] **Isolation from user config.** `--safe-mode --restricted --setting-sources "" --strict-mcp-config
+  --disable-slash-commands`.
   **→** Without them, `-p` loads the user's own hooks, plugins, MCP servers and CLAUDE.md.
-  `--bare` would also do this, but it only authenticates with an API key.
+  `--bare` would also do this, but it only authenticates with an API key. Verified on 2.1.287:
+  `--safe-mode` alone still loaded a user plugin. `--setting-sources ""` (or `--restricted`)
+  removes it, leaving only the CLI's built-in plugins (see M4).
 - [x] **Prompt injection.** Documented in the threat model. Tool restrictions carry the weight.
   **→** Attachments are data inlined into the prompt and can't widen permissions.
 - [x] **Logging privacy.** No prompt/output contents by default (`LOOPBACK_LOG_PROMPTS` for local
@@ -305,6 +308,50 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   descendant that escapes the job is the residual risk; it's noted in the threat model.
 - **M3: temp dirs are `req-*` under a work root, and only its direct `req-*` children can ever
   be deleted.** `fs.rm` doesn't follow junctions (verified).
+- **M4: parser fixtures are real captures** (Claude Code 2.1.287, haiku), redacted, in
+  `tests/fixtures/streams/`: success, `--json-schema`, logged out, and an unknown flag.
+- **M4: final CLI flag set** = `-p --output-format stream-json --verbose
+  --include-partial-messages --tools "" --permission-mode dontAsk --permission-prompts none
+  --no-session-persistence --safe-mode --restricted --setting-sources "" --strict-mcp-config
+  --disable-slash-commands`, plus validated `--model`, `--effort`, `--append-system-prompt` and
+  `--json-schema`. A real run with exactly these flags authenticated and answered.
+- **M4: one stream-json parser serves both endpoints.** Text comes only from top-level
+  `text_delta` events (never `thinking_delta`, `signature_delta`, `input_json_delta` or subagent
+  text). The final `result` line is validated with Zod.
+- **M4: errors are classified from `is_error` plus the error category, never from `subtype`.**
+  The real logged-out run reports `subtype: "success"` with `is_error: true`, and the category
+  comes from the assistant line's `error` field (`authentication_failed`) or from `api_retry`.
+  Auth categories → 503 `cli_not_authenticated`. `rate_limit`, or a `rate_limit_event` with
+  status `rejected` → 429 `usage_limit`, with `Retry-After` from `resetsAt`. Everything else →
+  502 `cli_failed`.
+- **M4: a complete successful `result` beats a late kill reason.** Without a result, the kill
+  reason decides (timeout → 504, output cap → 502, shutdown → 503). Then the stderr patterns
+  decide (unknown option → `cli_incompatible`, "not logged in" → `cli_not_authenticated`).
+- **M4: error messages are fixed strings.** CLI result text and stderr never reach clients;
+  only error categories matching `^[a-z_]+$` are echoed.
+- **M4 (security review): success requires every signal to agree:** `is_error: false`,
+  `subtype: "success"`, `terminal_reason` absent or `"completed"`, and `stop_reason` not
+  `"tool_deferred"`. `subtype` can't detect errors, but it can veto a success.
+- **M4 (security review): exactly one `result` line per run.** A second one is a protocol error,
+  and deltas after the result are dropped.
+- **M4 (security review): error categories are sanitized in the parser** (`^[a-z_]{1,40}$`, else
+  `"unknown"`). This covers both `retry` events and classification. A normal top-level assistant
+  message clears an earlier retry category, so a recovered rate-limit retry can't turn a later,
+  unrelated failure into `usage_limit`.
+- **M4 (security review): `Retry-After` is finite and capped at 7 days.** A `resetsAt` above
+  1e11 is read as milliseconds.
+- **M4 (security review): `structured_output` deeper than 256 levels is a protocol error.**
+  `JSON.stringify` throws past a few thousand levels, which would otherwise turn a success into a
+  500 or break the SSE write.
+- **M4 (security review): fixtures also scrub thinking signatures** (they base64-embed a stable
+  account-level id) **and message/tool-use ids, including when they appear as object keys.**
+- **For M5 (security review):**
+  - **Kill reason first:** the backend checks `exit.killReason` before reporting a parser
+    `cli_protocol_error`. A kill truncates the last line, which mustn't turn a timeout into a 502.
+  - **Missing structured output:** a missing `structuredOutput` when a schema was requested is
+    `cli_failed`.
+- **M4: structured output works with `--tools ""`.** The CLI uses an internal
+  `StructuredOutput` tool, and the object arrives as `structured_output` on the result line.
 - **For M9 (security review): take a single-instance lock before sweeping, and put the work
   root under `%LOCALAPPDATA%\loopback\work` rather than `%TEMP%`.** A second instance's sweep
   would otherwise delete the first instance's active dirs, and `%TEMP%` may be shared under a
