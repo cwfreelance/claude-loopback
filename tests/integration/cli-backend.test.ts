@@ -181,7 +181,7 @@ describe("CliBackend.stream", () => {
       expect((await stream.next()).value).toEqual({ type: "start", model: "fake-model" });
       expect(isAlive(pids[0] as number)).toBe(true);
       controller.abort();
-      expect(await rejectionCode(collect(stream))).toBe("cli_failed");
+      expect(await rejectionCode(collect(stream))).toBe("cancelled");
       await waitForDeath(pids[0] as number);
     },
     T,
@@ -192,7 +192,7 @@ describe("CliBackend.stream when cancelled or broken", () => {
   it("does not spawn anything when the signal is already aborted", async () => {
     const { cli, specs } = setup(replay("success.ndjson"));
     expect(await rejectionCode(collect(cli.stream(request(), AbortSignal.abort())))).toBe(
-      "cli_failed",
+      "cancelled",
     );
     expect(specs).toHaveLength(0);
   });
@@ -205,7 +205,7 @@ describe("CliBackend.stream when cancelled or broken", () => {
       const done = rejectionCode(collect(cli.stream(request(), controller.signal)));
       await new Promise((resolve) => setTimeout(resolve, 400)); // let the garbage arrive
       controller.abort();
-      expect(await done).toBe("cli_failed");
+      expect(await done).toBe("cancelled");
       await waitForDeath(pids[0] as number);
     },
     T,

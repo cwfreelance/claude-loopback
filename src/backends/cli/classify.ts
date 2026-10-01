@@ -74,7 +74,7 @@ export function classifyOutcome(outcome: CliOutcome, exit: ProcessExit, nowMs: n
     case "shutdown":
       throw new AppError("shutting_down", "Server is shutting down");
     case "aborted":
-      throw new AppError("cli_failed", "Run was cancelled");
+      throw new AppError("cancelled", "Run was cancelled");
   }
 
   if (outcome.errorCategory !== undefined) throw fromCategory(outcome, nowMs);

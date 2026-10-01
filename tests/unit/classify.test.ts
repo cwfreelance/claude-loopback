@@ -151,7 +151,7 @@ describe("classifyOutcome", () => {
     ["timeout", "timeout"],
     ["output_too_large", "output_too_large"],
     ["shutdown", "shutting_down"],
-    ["aborted", "cli_failed"],
+    ["aborted", "cancelled"],
   ])("maps a kill for %s without a result to %s", (killReason, code) => {
     expect(classifyError({}, exit({ code: null, killReason })).code).toBe(code);
   });

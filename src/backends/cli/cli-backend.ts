@@ -33,7 +33,7 @@ export interface CliBackendDeps {
 }
 
 const DEFAULT_PROBE_TTL_MS = 30_000;
-const cancelled = () => new AppError("cli_failed", "Run was cancelled");
+const cancelled = () => new AppError("cancelled", "Run was cancelled");
 const PROBE_TIMEOUT_MS = 15_000;
 
 function defaultExec(

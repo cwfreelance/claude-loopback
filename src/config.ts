@@ -17,6 +17,8 @@ export interface Config {
   readonly maxTimeoutMs: number;
   readonly allowedTools: readonly string[];
   readonly allowedModels: readonly string[];
+  /** Used when a request names no model, so the effective model is always allowlisted. */
+  readonly defaultModel: string;
   readonly maxBodyBytes: number;
   readonly rateLimitPerMin: number;
   readonly corsOrigins: readonly string[];
@@ -118,11 +120,12 @@ const schema = z
       [],
     ),
     LOOPBACK_ALLOWED_MODELS: list(MODEL_NAME, "a model alias or id", [
-      "fable",
-      "opus",
       "sonnet",
+      "opus",
       "haiku",
+      "fable",
     ]),
+    LOOPBACK_DEFAULT_MODEL: z.string().regex(MODEL_NAME, "must be a model alias or id").optional(),
     LOOPBACK_MAX_BODY_BYTES: int(1024, MAX_BODY_BYTES_CAP, 4 * 1024 * 1024),
     LOOPBACK_RATE_LIMIT_PER_MIN: int(1, 10_000, 30),
     LOOPBACK_CORS_ORIGINS: list(isOrigin, "an origin such as http://127.0.0.1:3000", []),
@@ -138,6 +141,21 @@ const schema = z
   })
   .strict()
   .superRefine((env, ctx) => {
+    const defaultModel = env.LOOPBACK_DEFAULT_MODEL;
+    if (defaultModel !== undefined && !env.LOOPBACK_ALLOWED_MODELS.includes(defaultModel)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOOPBACK_DEFAULT_MODEL"],
+        message: "must be one of LOOPBACK_ALLOWED_MODELS",
+      });
+    }
+    if (env.LOOPBACK_ALLOWED_MODELS.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOOPBACK_ALLOWED_MODELS"],
+        message: "must list at least one model",
+      });
+    }
     if (env.LOOPBACK_DEFAULT_TIMEOUT_MS > env.LOOPBACK_MAX_TIMEOUT_MS) {
       ctx.addIssue({
         code: "custom",
@@ -187,6 +205,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
     maxTimeoutMs: e.LOOPBACK_MAX_TIMEOUT_MS,
     allowedTools: Object.freeze(e.LOOPBACK_ALLOWED_TOOLS),
     allowedModels: Object.freeze(e.LOOPBACK_ALLOWED_MODELS),
+    defaultModel: e.LOOPBACK_DEFAULT_MODEL ?? (e.LOOPBACK_ALLOWED_MODELS[0] as string),
     maxBodyBytes: e.LOOPBACK_MAX_BODY_BYTES,
     rateLimitPerMin: e.LOOPBACK_RATE_LIMIT_PER_MIN,
     corsOrigins: Object.freeze(e.LOOPBACK_CORS_ORIGINS),

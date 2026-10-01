@@ -29,7 +29,8 @@ describe("loadConfig", () => {
       defaultTimeoutMs: 120_000,
       maxTimeoutMs: 600_000,
       allowedTools: [],
-      allowedModels: ["fable", "opus", "sonnet", "haiku"],
+      allowedModels: ["sonnet", "opus", "haiku", "fable"],
+      defaultModel: "sonnet",
       maxBodyBytes: 4 * 1024 * 1024,
       rateLimitPerMin: 30,
       corsOrigins: [],
@@ -61,6 +62,7 @@ describe("loadConfig", () => {
       maxTimeoutMs: 9000,
       allowedTools: ["WebSearch", "WebFetch"],
       allowedModels: ["sonnet", "claude-opus-5-5"],
+      defaultModel: "sonnet",
       corsOrigins: ["http://127.0.0.1:3000"],
       logLevel: "debug",
       logPrompts: true,
@@ -94,6 +96,32 @@ describe("loadConfig", () => {
     expect(error.issues.some((issue) => issue.startsWith("LOOPBACK_CLAUDE_PATH:"))).toBe(true);
   });
 
+  it("uses an explicit default model when it is allowlisted", () => {
+    const config = loadConfig({
+      ...base,
+      LOOPBACK_ALLOWED_MODELS: "haiku,sonnet",
+      LOOPBACK_DEFAULT_MODEL: "sonnet",
+    });
+    expect(config.defaultModel).toBe("sonnet");
+  });
+
+  it("defaults the model to the first allowlisted one", () => {
+    expect(loadConfig({ ...base, LOOPBACK_ALLOWED_MODELS: "haiku,sonnet" }).defaultModel).toBe(
+      "haiku",
+    );
+  });
+
+  it("rejects a default model outside the allowlist", () => {
+    const error = configErrorOf({
+      ...base,
+      LOOPBACK_ALLOWED_MODELS: "haiku",
+      LOOPBACK_DEFAULT_MODEL: "opus",
+    });
+    expect(error.issues).toContainEqual(
+      expect.stringMatching(/^LOOPBACK_DEFAULT_MODEL: .*LOOPBACK_ALLOWED_MODELS/),
+    );
+  });
+
   it("allows port 0 for an ephemeral port", () => {
     expect(loadConfig({ ...base, LOOPBACK_PORT: "0" }).port).toBe(0);
   });
@@ -101,7 +129,7 @@ describe("loadConfig", () => {
   it("treats empty strings as unset", () => {
     const config = loadConfig({ ...base, LOOPBACK_PORT: "", LOOPBACK_ALLOWED_MODELS: "" });
     expect(config.port).toBe(7337);
-    expect(config.allowedModels).toEqual(["fable", "opus", "sonnet", "haiku"]);
+    expect(config.allowedModels).toEqual(["sonnet", "opus", "haiku", "fable"]);
   });
 
   it("ignores env vars outside the LOOPBACK_ prefix", () => {

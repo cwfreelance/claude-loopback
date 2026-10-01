@@ -165,7 +165,7 @@ A checklist of decisions and edge cases. Each item records the choice and the re
 - [x] **Status mapping.** 400 `invalid_request`/`tool_not_allowed`/`model_not_allowed` · 401
   `unauthorized` · 403 `forbidden_host`/`forbidden_origin` · 404/405 · 413
   `payload_too_large` · 415 `unsupported_media_type` · 429
-  `queue_full`/`rate_limited`/`usage_limit` · 502
+  `queue_full`/`rate_limited`/`usage_limit` · 499 `cancelled` (client went away; logs only) · 502
   `cli_failed`/`cli_protocol_error`/`output_too_large`/`cli_incompatible` · 503
   `cli_unavailable`/`cli_not_authenticated`/`queue_timeout`/`shutting_down` · 504 `timeout` · 500
   `internal`.
@@ -378,6 +378,37 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   `auth status` don't spawn children, so this is accepted.
 - **M4: structured output works with `--tools ""`.** The CLI uses an internal
   `StructuredOutput` tool, and the object arrives as `structured_output` on the result line.
+- **M6: the queue hands a freed slot directly to the oldest waiter (FIFO).** Waiters are
+  removed on timeout (503 `queue_timeout`) or client abort. A full queue → 429 `queue_full` with
+  `Retry-After: 5`. `close()` fails waiters and later acquires with 503 `shutting_down`, while
+  held slots stay valid so in-flight runs can drain.
+- **M6: policy is checked in the service before queueing:** tools ⊆ allowlist (and again in
+  `buildArgs`), model ∈ allowlist, `timeoutMs` ≤ max (default from config). An invalid request
+  never takes a slot.
+- **M6: attachments are inlined ahead of the prompt as `<attachments><file name="…">…</file>`
+  blocks.** Names are validated upstream; contents are passed through untouched, as data. The
+  inlined prompt must stay under 9 MB (the CLI caps stdin at 10 MB).
+- **M6 (security review): the service owns the run loop: `run(input, ctx, { onQueued, onEvent })`
+  instead of returning a generator.** A generator dropped without `return()` held its slot forever,
+  so two disconnects could lock up the server. Now the slot is released in the service's own
+  `finally`, whatever the route does. `onQueued` fires after validation and queueing succeed, so
+  the SSE route can still answer 4xx/429 before sending headers.
+- **M6 (security review): the service validates everything it relies on:**
+  - `timeoutMs` must be an integer from 1000 to the max.
+  - Attachment names must be 1-200 printable characters without `" < > &`.
+  - Attachment tags carry a random per-request boundary (`<file-<hex> …>`), so file content
+    can't close its block and pose as the prompt.
+- **M6 (security review): `LOOPBACK_DEFAULT_MODEL` (default: the first allowlisted model) is
+  sent when a request names no model.** Otherwise the CLI's own default (possibly outside the
+  allowlist) would be used. The default allowlist is reordered to `sonnet,opus,haiku,fable`, so
+  the out-of-the-box default is sonnet.
+- **M6 (security review): a new `cancelled` code (499) for client cancellations**, in the queue
+  and the backend, so logs can tell a disconnect from a CLI failure.
+- **M6: exactly one log line per request** ("prompt finished" / "prompt failed" with `code`),
+  including validation and queue rejections: request id, queue time, model, duration, token
+  counts, cost. Never prompt, attachment or output text.
+- **For M9: on shutdown, call `queue.close()` before aborting in-flight requests**, so queued
+  clients get `shutting_down` rather than `cancelled`.
 - **For M9 (security review): take a single-instance lock before sweeping, and put the work
   root under `%LOCALAPPDATA%\loopback\work` rather than `%TEMP%`.** A second instance's sweep
   would otherwise delete the first instance's active dirs, and `%TEMP%` may be shared under a

@@ -16,6 +16,7 @@ describe("errorStatus", () => {
     ["queue_full", 429],
     ["rate_limited", 429],
     ["usage_limit", 429],
+    ["cancelled", 499],
     ["cli_failed", 502],
     ["cli_protocol_error", 502],
     ["output_too_large", 502],

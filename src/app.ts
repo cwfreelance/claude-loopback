@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { type Clock, systemClock } from "./clock.ts";
 import type { Config } from "./config.ts";
 import { AppError, toErrorResponse } from "./errors.ts";
@@ -66,7 +67,8 @@ export function createApp({ config, logger, clock = systemClock }: AppDeps): Hon
     if (!(error instanceof AppError)) logger.error({ requestId, err: error }, "unhandled error");
     const { status, headers, body } = toErrorResponse(error, requestId);
     for (const [name, value] of Object.entries(headers)) c.header(name, value);
-    return c.json(body, status);
+    // 499 (cancelled) isn't in Hono's status union, but any 200-599 status is a valid Response.
+    return c.json(body, status as ContentfulStatusCode);
   });
 
   return app;
