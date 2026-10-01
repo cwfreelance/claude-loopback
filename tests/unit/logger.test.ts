@@ -78,7 +78,7 @@ describe("createLogger", () => {
     expect(output()).not.toContain("s3cret-token");
   });
 
-  it.each(["text", "result", "structuredOutput", "delta", "line", "body", "stderr"])(
+  it.each(["text", "result", "structuredOutput", "delta", "line", "body", "stderr", "stderrTail"])(
     "treats %s as content and redacts it by default",
     (key) => {
       const { destination, output } = capture();

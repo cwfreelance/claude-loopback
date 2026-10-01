@@ -34,6 +34,7 @@ const CONTENT_KEYS = [
   "line",
   "body",
   "stderr",
+  "stderrTail",
 ];
 
 // Redact each key at the root and up to three levels down (enough for a request object with

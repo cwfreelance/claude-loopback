@@ -76,10 +76,11 @@ A checklist of decisions and edge cases. Each item records the choice and the re
 - [x] **Startup checks.** CLI missing or too old → refuse to start. Not logged in → start, but
   `/ready` returns 503 (re-probed, cached 30 s).
   **→** Logging in shouldn't require a server restart.
-- [x] **Orphan cleanup.** PID registry on disk. At boot, leftover PIDs are killed only if
-  `tasklist` still reports `claude.exe`.
-  **→** No job objects without a native module, and the image-name check guards against reused
-  PIDs.
+- [x] **Orphan cleanup.** Rely on the Windows job object; no PID registry. Stale temp dirs are
+  swept at boot.
+  **→** libuv puts every non-detached child into a kill-on-close job object, so `claude.exe`
+  dies with the server even on a hard crash (covered by a crash test). A boot-time reaper would
+  mostly hit reused PIDs, possibly the owner's interactive Claude Code session (see M3 below).
 
 ## 4. Streaming
 
@@ -280,6 +281,34 @@ A checklist of decisions and edge cases. Each item records the choice and the re
 - **M2 (security review): `X-Request-Id` and the access log survive responses with immutable
   headers (copied into a fresh Response). Non-`Error` throws are wrapped so they still get the
   JSON envelope.** Hono only sends `Error` instances to `onError`.
+- **M3: the runner exposes raw stdout bytes as an async iterable; line splitting belongs to the
+  stream parser (M4).** The runner enforces the total stdout cap (20 MB) and keeps the last
+  64 KB of stderr as bytes.
+- **M3: stdout is read into the runner's own queue, and the pipe is paused at a 1 MB
+  high-water mark.** Node discards a pipe's unread data when it closes, so relying on the
+  stream's buffer silently lost output for late readers. Pausing keeps real backpressure.
+- **M3: output is never cut off while a reader is active.** An unread or abandoned stdout is
+  cut off after a 2 s grace period following exit, and the reader then gets an error, never a
+  silent truncation. Timeout and abort stay armed until stdio closes, so a straggler holding the
+  pipe can't hang a request forever.
+- **M3: abandoning stdout (break/return/throw) kills the process tree.** A failed consumer
+  doesn't hold a concurrency slot until the timeout.
+- **M3: `exit` resolves only after cleanup** (stdio closed, temp dir removed). Callers can
+  rely on "no leftovers" once it settles.
+- **M3: `kill()` is idempotent, the first reason wins, and it never runs after the process has
+  exited.** By then the PID may belong to someone else.
+- **M3: `taskkill` runs by absolute `%SystemRoot%\System32` path with an env of only
+  `SystemRoot` and a 10 s timeout.** Exit code 128 ("not found") counts as success. Any other
+  failure falls back to `child.kill()` through the process handle, never a PID-based kill.
+- **M3 (security review): no PID registry or boot-time reaper.** The job object already kills
+  children when the server dies, so leftover PIDs would mostly be reused ones. A detached
+  descendant that escapes the job is the residual risk; it's noted in the threat model.
+- **M3: temp dirs are `req-*` under a work root, and only its direct `req-*` children can ever
+  be deleted.** `fs.rm` doesn't follow junctions (verified).
+- **For M9 (security review): take a single-instance lock before sweeping, and put the work
+  root under `%LOCALAPPDATA%\loopback\work` rather than `%TEMP%`.** A second instance's sweep
+  would otherwise delete the first instance's active dirs, and `%TEMP%` may be shared under a
+  service account.
 - **M2 (from M1 review): the Host check validates the raw `Host` header and rejects
   requests that have none.** @hono/node-server builds `c.req.url` from absolute-form targets or
   falls back to the bind hostname, so `c.req.url` can't be trusted for this check. M2 also

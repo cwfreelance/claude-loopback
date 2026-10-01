@@ -36,7 +36,7 @@ backend and spawner are injected so every layer is testable alone.
 - `src/app.ts`: `createApp(deps)` (Hono). `src/index.ts`: boot.
 - `src/http/`: middleware, schemas, routes, SSE. `src/service/`: prompt service, queue.
 - `src/backends/`: `types.ts` + `cli/` (args, env, stream parser, classify, probe).
-- `src/process/`: runner, tree kill, temp dirs, PID registry.
+- `src/process/`: runner (buffered stdout, caps, timeout/abort), tree kill, temp dirs.
 
 The full plan and decision log live in `docs/DECISIONS.md`.
 
