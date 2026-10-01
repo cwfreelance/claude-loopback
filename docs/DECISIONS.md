@@ -252,7 +252,35 @@ A checklist of decisions and edge cases. Each item records the choice and the re
 - **M1 (security review): logger redacts credentials and content keys up to three levels deep;
   `err` is serialized as `{type, message, code}` only.** The cause chain may wrap CLI stderr or
   paths. Log calls should still pass flat, purpose-built objects.
-- **For M2 (security review): the Host check validates the raw `Host` header and rejects
+- **M2: middleware order is request id → Host → Origin → CORS → auth → rate limit → JSON body
+  guards → routes.** Hostile Hosts/Origins are rejected before auth, CORS preflights never need
+  the token, and failed auth never spends rate-limit budget.
+- **M2: accepted Hosts are `127.0.0.1` and `localhost` (any port, case-insensitive).** `[::1]`
+  isn't accepted because we don't bind IPv6. Node itself answers 400 to HTTP/1.1 requests with no
+  Host before the app runs; the app's own check still returns 403 if one gets through.
+- **M2: request ids are always server-generated UUIDs.** Client-sent `X-Request-Id` is ignored,
+  so nobody can inject text into logs.
+- **M2: the access log records path, method, status and duration, never the query string.**
+- **M2: bearer scheme is case-insensitive; the token must match the token68 charset exactly**
+  (single space, no extra text).
+- **M2: `/health` is the only public path, and it is exempt from the rate limit.**
+- **M2: CORS headers only exist when `LOOPBACK_CORS_ORIGINS` is set** (via `hono/cors`, exposing
+  `X-Request-Id` and `Retry-After`).
+- **M2: no 405 responses.** Hono's router isn't method-aware for misses, so a wrong method gets
+  404 `not_found`. `method_not_allowed` stays in the error table for later.
+- **M2 (security review): unexpected (non-`AppError`) errors are logged with type and code only;
+  their message appears only when `LOOPBACK_LOG_PROMPTS` is on.** Messages like `JSON.parse`'s
+  quote the request body. Routes parse bodies with `readJsonBody`, which turns malformed JSON into
+  400 `invalid_request` and drops the parser message.
+- **M2 (security review): the clock is monotonic (`performance.timeOrigin + performance.now()`),
+  and rate-limit refill clamps negative elapsed time.** A wall-clock step backwards would
+  otherwise drain the bucket and lock the owner out.
+- **M2 (security review): body guards apply to any request that has a body, whatever the
+  method.**
+- **M2 (security review): `X-Request-Id` and the access log survive responses with immutable
+  headers (copied into a fresh Response). Non-`Error` throws are wrapped so they still get the
+  JSON envelope.** Hono only sends `Error` instances to `onError`.
+- **M2 (from M1 review): the Host check validates the raw `Host` header and rejects
   requests that have none.** @hono/node-server builds `c.req.url` from absolute-form targets or
   falls back to the bind hostname, so `c.req.url` can't be trusted for this check. M2 also
   replaces Hono's default `onError`/`notFound`, which write to `console.error` (bypassing

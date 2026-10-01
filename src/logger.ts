@@ -1,5 +1,6 @@
 import { type DestinationStream, destination, type Logger, pino } from "pino";
 import type { LogLevel } from "./config.ts";
+import { AppError } from "./errors.ts";
 
 export type { Logger };
 
@@ -44,11 +45,22 @@ const pathsFor = (keys: string[]) =>
     return [segment.replace(/^\./, ""), `*${segment}`, `*.*${segment}`, `*.*.*${segment}`];
   });
 
-// Only type, message and code: no stack and no cause chain, which may wrap CLI stderr or paths.
-function serializeError(error: unknown) {
-  if (!(error instanceof Error)) return { type: typeof error, message: String(error) };
-  const code = (error as { code?: unknown }).code;
-  return { type: error.name, message: error.message, ...(code === undefined ? {} : { code }) };
+// Type, code and (when safe) message only: no stack and no cause chain, which may wrap CLI
+// stderr or paths. AppError messages are client-safe by contract; any other message may quote
+// request content (e.g. JSON.parse errors echo the body), so it counts as content.
+function errorSerializer(logPrompts: boolean) {
+  return (error: unknown) => {
+    if (!(error instanceof Error)) {
+      return logPrompts ? { type: typeof error, message: String(error) } : { type: typeof error };
+    }
+    const code = (error as { code?: unknown }).code;
+    const showMessage = logPrompts || error instanceof AppError;
+    return {
+      type: error.name,
+      ...(showMessage ? { message: error.message } : {}),
+      ...(code === undefined ? {} : { code }),
+    };
+  };
 }
 
 /** JSON logger that always redacts credentials and, unless enabled, prompt/output contents. */
@@ -59,7 +71,7 @@ export function createLogger(options: LoggerOptions): Logger {
       level: options.level,
       base: undefined,
       redact: { paths: pathsFor(keys), censor: "[redacted]" },
-      serializers: { err: serializeError },
+      serializers: { err: errorSerializer(options.logPrompts) },
     },
     options.destination ?? destination(1),
   );

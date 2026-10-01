@@ -1,5 +1,6 @@
 import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { AppError } from "../../src/errors.ts";
 import { createLogger } from "../../src/logger.ts";
 
 function capture() {
@@ -89,21 +90,36 @@ describe("createLogger", () => {
     },
   );
 
-  it("logs errors without their cause chain", () => {
+  it("logs AppErrors with their client-safe message but without the cause chain", () => {
     const { destination, output } = capture();
     const cause = new Error("stderr: C:\\Users\\me\\private-path");
-    const error = Object.assign(new Error("Claude CLI failed", { cause }), { code: "cli_failed" });
+    const error = new AppError("cli_failed", "Claude CLI failed", { cause });
     createLogger({ level: "info", logPrompts: false, destination }).error(
       { err: error },
       "run failed",
     );
     const line = JSON.parse(output().trim());
     expect(line.err).toMatchObject({
-      type: "Error",
+      type: "AppError",
       message: "Claude CLI failed",
       code: "cli_failed",
     });
     expect(output()).not.toContain("private-path");
+  });
+
+  it("hides the message of unexpected errors, which may quote request content", () => {
+    const { destination, output } = capture();
+    const error = new SyntaxError('Unexpected token, "my private prompt" is not valid JSON');
+    createLogger({ level: "info", logPrompts: false, destination }).error({ err: error }, "x");
+    expect(JSON.parse(output().trim()).err).toMatchObject({ type: "SyntaxError" });
+    expect(output()).not.toContain("private");
+  });
+
+  it("includes unexpected error messages when prompt logging is enabled", () => {
+    const { destination, output } = capture();
+    const error = new SyntaxError('"my private prompt" is not valid JSON');
+    createLogger({ level: "info", logPrompts: true, destination }).error({ err: error }, "x");
+    expect(output()).toContain("my private prompt");
   });
 
   it("writes nothing when silent", () => {
