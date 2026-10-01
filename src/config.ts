@@ -111,7 +111,12 @@ const schema = z
     LOOPBACK_QUEUE_TIMEOUT_MS: int(0, 3_600_000, 60_000),
     LOOPBACK_DEFAULT_TIMEOUT_MS: int(1000, 3_600_000, 120_000),
     LOOPBACK_MAX_TIMEOUT_MS: int(1000, 3_600_000, 600_000),
-    LOOPBACK_ALLOWED_TOOLS: list(TOOL_NAME, "a plain tool name such as WebSearch", []),
+    LOOPBACK_ALLOWED_TOOLS: list(
+      // "default" is the CLI's keyword for every built-in tool, not a tool name.
+      (value) => TOOL_NAME.test(value) && value.toLowerCase() !== "default",
+      "a plain tool name such as WebSearch",
+      [],
+    ),
     LOOPBACK_ALLOWED_MODELS: list(MODEL_NAME, "a model alias or id", [
       "fable",
       "opus",

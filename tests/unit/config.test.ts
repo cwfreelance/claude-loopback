@@ -154,6 +154,11 @@ describe("loadConfig", () => {
       "LOOPBACK_ALLOWED_TOOLS",
     ],
     [
+      "the all-tools keyword",
+      { ...base, LOOPBACK_ALLOWED_TOOLS: "WebSearch,Default" },
+      "LOOPBACK_ALLOWED_TOOLS",
+    ],
+    [
       "model with spaces",
       { ...base, LOOPBACK_ALLOWED_MODELS: "son net" },
       "LOOPBACK_ALLOWED_MODELS",

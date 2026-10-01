@@ -345,11 +345,37 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   500 or break the SSE write.
 - **M4 (security review): fixtures also scrub thinking signatures** (they base64-embed a stable
   account-level id) **and message/tool-use ids, including when they appear as object keys.**
-- **For M5 (security review):**
-  - **Kill reason first:** the backend checks `exit.killReason` before reporting a parser
-    `cli_protocol_error`. A kill truncates the last line, which mustn't turn a timeout into a 502.
-  - **Missing structured output:** a missing `structuredOutput` when a schema was requested is
-    `cli_failed`.
+- **M5 (from M4 review): the backend checks `exit.killReason` before reporting a parser
+  `cli_protocol_error`.** A kill truncates the last line, which mustn't turn a timeout into a 502.
+  A missing `structuredOutput` when a schema was requested is `cli_failed`.
+- **M5: every optional CLI value uses `--flag=value`** (`--model=`, `--effort=`,
+  `--append-system-prompt=`, `--json-schema=`). Free-text values such as a system prompt starting
+  with `--` can then never be parsed as a flag. Verified on the real CLI with
+  `--append-system-prompt=--dangerously-skip-permissions`: the permission mode stayed `dontAsk`.
+  `--tools` keeps its separate (verified) empty-string form.
+- **M5: `buildArgs` re-validates model, tools, effort and NUL bytes, and caps the whole command
+  line at 30,000 chars** (Windows' limit is 32,767). This is defense in depth on top of request
+  validation.
+- **M5: the child env also forces `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`**, which turns off
+  telemetry, error reporting and update checks. Matching is case-insensitive (`Path` vs `PATH`),
+  and `ANTHROPIC_*`/`LOOPBACK_*` are blocked even if added to the allowlist.
+- **M5: `claude.exe` is resolved once, from drive-absolute PATH entries only; `.cmd`/`.bat`/`.ps1`
+  shims are refused** with a message pointing to `LOOPBACK_CLAUDE_PATH`.
+- **M5: `probe()` runs `--version` and `auth status --json` (no usage spent), caches the result
+  for 30 s, and reports a reason when not ready:** CLI can't run, unreadable version, too old, or
+  not logged in.
+- **M5: when a stream is abandoned or fails, the backend closes the parser chain, kills the run
+  and waits for cleanup** before its generator finishes.
+- **M5 (security review): the tool allowlist is enforced in `buildArgs`, where argv is built.**
+  A tool outside `LOOPBACK_ALLOWED_TOOLS` → 400 `tool_not_allowed`. `default`, the CLI's
+  all-tools keyword, is refused as a tool name in both config and requests, in any casing.
+  Otherwise `tools: ["default"]` would have enabled every built-in tool.
+- **M5 (security review): `stream()` only ever throws `AppError`.** Cancellation wins over
+  parse errors (a cancelled run is reported as cancelled), and an already-aborted signal fails
+  before anything is spawned.
+- **M5 (security review): concurrent `probe()` calls share one in-flight probe.** Residual
+  risk: the probe's `execFile` timeout kills only the direct process. `--version` and
+  `auth status` don't spawn children, so this is accepted.
 - **M4: structured output works with `--tools ""`.** The CLI uses an internal
   `StructuredOutput` tool, and the object arrives as `structured_output` on the result line.
 - **For M9 (security review): take a single-instance lock before sweeping, and put the work

@@ -1,3 +1,34 @@
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/** One run, already validated and narrowed by the service layer. */
+export interface RunRequest {
+  /** The full prompt text sent on stdin (attachments already inlined). */
+  readonly prompt: string;
+  /** Tools to enable; a subset of the server allowlist. Empty means none. */
+  readonly tools: readonly string[];
+  readonly timeoutMs: number;
+  readonly model?: string;
+  readonly systemPrompt?: string;
+  readonly effort?: Effort;
+  readonly jsonSchema?: Readonly<Record<string, unknown>>;
+}
+
+export interface BackendStatus {
+  readonly ready: boolean;
+  readonly loggedIn: boolean;
+  readonly version?: string;
+  /** Why the backend is not ready; safe to show to the authenticated owner. */
+  readonly reason?: string;
+}
+
+/** Routes and the service only ever see this; CliBackend now, ApiBackend (BYOK) later. */
+export interface ClaudeBackend {
+  probe(): Promise<BackendStatus>;
+  /** Emits start/delta/retry events and ends with exactly one result event, or throws AppError. */
+  stream(request: RunRequest, signal: AbortSignal): AsyncGenerator<RunEvent>;
+  run(request: RunRequest, signal: AbortSignal): Promise<RunResult>;
+}
+
 export interface Usage {
   readonly inputTokens: number;
   readonly outputTokens: number;

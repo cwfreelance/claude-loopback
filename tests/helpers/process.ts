@@ -46,7 +46,7 @@ export function makeRunner({ clock = systemClock, ...limits }: RunnerOptions = {
   const { logger, entries } = captureLogger();
   const tempDirs = createTempDirs({ root: path.join(root, "work"), logger });
   const runner = createProcessRunner({ tempDirs, killTree, clock, logger, ...limits });
-  return { runner, root, workRoot: path.join(root, "work"), logs: entries };
+  return { runner, root, workRoot: path.join(root, "work"), logger, logs: entries };
 }
 
 /** A RunSpec that runs the fake CLI with the given scenario. */
