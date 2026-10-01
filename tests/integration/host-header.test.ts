@@ -1,8 +1,17 @@
 import { request } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { startServer, stopServers, TOKEN, waitForListening } from "../helpers/server.ts";
+import { startLive } from "../helpers/live.ts";
 
-afterEach(stopServers);
+const servers: Array<{ close(): Promise<void> }> = [];
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => server.close()));
+});
+
+async function livePort(): Promise<number> {
+  const server = await startLive();
+  servers.push(server);
+  return server.port;
+}
 
 interface RawOptions {
   port: number;
@@ -45,18 +54,14 @@ describe("Host header on the real server", () => {
   // Node's HTTP parser answers 400 to an HTTP/1.1 request without Host before the app runs;
   // the app's own 403 for this case is covered in tests/unit/http-guards.test.ts.
   it("rejects a request without a Host header before it reaches the app", async () => {
-    const { port } = await waitForListening(
-      startServer({ LOOPBACK_TOKEN: TOKEN, LOOPBACK_PORT: "0" }),
-    );
+    const port = await livePort();
     const response = await rawGet({ port, path: "/health" });
     expect(response.status).toBe(400);
     expect(response.requestId).toBeUndefined();
   }, 20_000);
 
   it("rejects a forged Host even with an absolute-form loopback target", async () => {
-    const { port } = await waitForListening(
-      startServer({ LOOPBACK_TOKEN: TOKEN, LOOPBACK_PORT: "0" }),
-    );
+    const port = await livePort();
     const response = await rawGet({
       port,
       path: `http://127.0.0.1:${port}/health`,
@@ -66,9 +71,7 @@ describe("Host header on the real server", () => {
   }, 20_000);
 
   it("accepts a normal loopback Host", async () => {
-    const { port } = await waitForListening(
-      startServer({ LOOPBACK_TOKEN: TOKEN, LOOPBACK_PORT: "0" }),
-    );
+    const port = await livePort();
     const response = await rawGet({ port, path: "/health", host: `127.0.0.1:${port}` });
     expect(response.status).toBe(200);
     expect(response.requestId).toBeDefined();

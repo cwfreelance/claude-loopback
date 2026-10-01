@@ -3,6 +3,9 @@ import { createApp } from "../../src/app.ts";
 import type { Clock, TimerHandle } from "../../src/clock.ts";
 import { loadConfig } from "../../src/config.ts";
 import { createLogger } from "../../src/logger.ts";
+import { createPromptService } from "../../src/service/prompt-service.ts";
+import { createQueue } from "../../src/service/queue.ts";
+import { FakeBackend } from "./backend.ts";
 
 export const TOKEN = "kV3x9-Qe7Lp2Rw8Zt4Yb6Nc1Md5Hf0Ja2S";
 
@@ -61,10 +64,20 @@ export function buildApp(env: Record<string, string> = {}, clock = new FakeClock
   });
   const config = loadConfig({ LOOPBACK_TOKEN: TOKEN, ...env });
   const logger = createLogger({ level: "info", logPrompts: false, destination });
-  const app = createApp({ config, logger, clock });
+  const backend = new FakeBackend();
+  const queue = createQueue({
+    maxConcurrency: config.maxConcurrency,
+    queueSize: config.queueSize,
+    maxWaitMs: config.queueTimeoutMs,
+    clock,
+  });
+  const service = createPromptService({ backend, queue, config, clock, logger });
+  const app = createApp({ config, logger, clock, service, backend });
   return {
     app,
     clock,
+    backend,
+    service,
     logs: () => lines.join(""),
     logEntries: () => lines.map((line) => JSON.parse(line) as Record<string, unknown>),
   };

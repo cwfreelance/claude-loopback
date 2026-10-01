@@ -32,6 +32,26 @@ switch (scenario) {
     process.exitCode = Number(process.env.FAKE_CLAUDE_EXIT ?? "0");
     break;
   }
+  case "echo-result": {
+    // Reports what it was given as the text of a valid result, so it is visible over HTTP.
+    const stdin = await text(process.stdin);
+    const report = {
+      stdin,
+      cwd: process.cwd(),
+      argv: process.argv.slice(2),
+      env: process.env,
+    };
+    emit({ type: "system", subtype: "init", model: "fake-model" });
+    emit({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: JSON.stringify(report),
+      stop_reason: "end_turn",
+      duration_ms: 1,
+    });
+    break;
+  }
   case "init-then-hang":
     emit({ type: "system", subtype: "init", model: "fake-model" });
     hang();

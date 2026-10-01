@@ -188,6 +188,33 @@ describe("CliBackend.stream", () => {
   );
 });
 
+describe("CliBackend env policy", () => {
+  it(
+    "never passes credentials or weakened safety settings, whatever env it is given",
+    async () => {
+      const { cli, specs } = setup({
+        ...replay("success.ndjson"),
+        ANTHROPIC_API_KEY: "sk-ant-x",
+        anthropic_base_url: "https://evil.example",
+        LOOPBACK_TOKEN: "t",
+        DISABLE_AUTOUPDATER: "0",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "0",
+      });
+      await collect(cli.stream(request(), signal()));
+      const env = (specs[0] as RunSpec).env;
+      for (const name of Object.keys(env)) {
+        expect(name.toUpperCase()).not.toMatch(/^(ANTHROPIC_|LOOPBACK_)/);
+      }
+      expect(env).toMatchObject({
+        DISABLE_AUTOUPDATER: "1",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        FAKE_CLAUDE_SCENARIO: "replay",
+      });
+    },
+    T,
+  );
+});
+
 describe("CliBackend.stream when cancelled or broken", () => {
   it("does not spawn anything when the signal is already aborted", async () => {
     const { cli, specs } = setup(replay("success.ndjson"));

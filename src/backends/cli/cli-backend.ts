@@ -8,6 +8,7 @@ import type { ProcessRunner } from "../../process/runner.ts";
 import type { BackendStatus, ClaudeBackend, RunEvent, RunRequest, RunResult } from "../types.ts";
 import { buildArgs } from "./args.ts";
 import { classifyOutcome } from "./classify.ts";
+import { enforceChildEnvPolicy } from "./env.ts";
 import { isSupportedVersion, MIN_CLI_VERSION, parseVersion } from "./probe.ts";
 import { type CliOutcome, interpretCliStream, splitLines } from "./stream-parser.ts";
 
@@ -55,7 +56,7 @@ function defaultExec(
 export function createCliBackend(deps: CliBackendDeps): ClaudeBackend {
   const { runner, command, logger } = deps;
   const prefix = deps.prefixArgs ?? [];
-  const env = { ...deps.env };
+  const env = enforceChildEnvPolicy(deps.env);
   const clock = deps.clock ?? systemClock;
   const exec = deps.exec ?? defaultExec(command, prefix, env);
   const probeTtlMs = deps.probeTtlMs ?? DEFAULT_PROBE_TTL_MS;

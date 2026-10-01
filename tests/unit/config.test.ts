@@ -255,4 +255,15 @@ describe("scrubSecrets", () => {
     scrubSecrets(env);
     expect(env).toEqual({ LOOPBACK_PORT: "7337", PATH: "C:\\Windows" });
   });
+
+  it("matches names case-insensitively, as Windows does", () => {
+    const env: Record<string, string | undefined> = {
+      loopback_token: TOKEN,
+      anthropic_api_key: "sk-ant-x",
+      Anthropic_Base_Url: "https://evil.example",
+      Path: "C:\\Windows",
+    };
+    scrubSecrets(env);
+    expect(env).toEqual({ Path: "C:\\Windows" });
+  });
 });

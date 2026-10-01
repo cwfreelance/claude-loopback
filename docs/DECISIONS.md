@@ -404,9 +404,35 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   the out-of-the-box default is sonnet.
 - **M6 (security review): a new `cancelled` code (499) for client cancellations**, in the queue
   and the backend, so logs can tell a disconnect from a CLI failure.
-- **M6: exactly one log line per request** ("prompt finished" / "prompt failed" with `code`),
-  including validation and queue rejections: request id, queue time, model, duration, token
-  counts, cost. Never prompt, attachment or output text.
+- **M6: one service log line per prompt that passes schema validation** ("prompt finished" /
+  "prompt failed" with `code`), including policy and queue rejections. It records request id,
+  queue time, model, duration, token counts and cost, never prompt, attachment or output text.
+  Schema rejections (400 in the route) are covered by the per-request access log line.
+- **M7: the request body is a strict Zod schema** (unknown fields → 400) with caps: prompt
+  ≤ 200k chars, ≤ 20 attachments totalling ≤ 2 MB, systemPrompt and jsonSchema ≤ 16 KB each
+  (they travel in argv), ≤ 32 tools. Validation errors name the field and the rule, never the
+  value.
+- **M7: boot wiring lives in `startServer(options)` (`src/server.ts`); `index.ts` is a thin
+  shell.** It snapshots `process.env`, scrubs secrets from the live env before anything starts,
+  and exits 1 with a readable message on `ConfigError` or a missing `claude.exe`. Tests run
+  `startServer` in-process with the fake CLI, so CI never needs Claude installed.
+- **M7: the work root defaults to `%LOCALAPPDATA%\loopback\work`** (from the M3 review). Unlike
+  `%TEMP%`, it is never shared under a service account.
+- **M7: client disconnect is wired through `c.req.raw.signal`.** @hono/node-server aborts it when
+  the client goes away; an integration test proves the CLI child dies and the slot is freed.
+- **M7 (security review): schema errors never echo client-supplied key names.** Zod's
+  `unrecognized_keys` message quotes them (a single request produced a 3 MB message), so it
+  becomes a fixed "unknown field".
+- **M7 (security review): the work root falls back to the OS temp dir unless `LOCALAPPDATA` is a
+  drive-absolute path.** An empty or relative value would have put work dirs inside the repo.
+- **M7 (security review): `createCliBackend` enforces the child-env policy itself**
+  (`enforceChildEnvPolicy`): no `ANTHROPIC_*`/`LOOPBACK_*`, and the forced safety settings win
+  in any casing. It holds whatever env a caller or test seam passes.
+- **M7 (security review): `scrubSecrets` matches names case-insensitively**, like Windows.
+- **M7 (security review): a busy or reserved port exits 1 with `loopback: cannot listen on …`**
+  instead of a stack trace.
+- **M7: `/ready` returns 200/503 `{ ready, cli: { loggedIn, version?, reason? }, queue }`** and
+  requires the token. `/health` stays public with no detail.
 - **For M9: on shutdown, call `queue.close()` before aborting in-flight requests**, so queued
   clients get `shutting_down` rather than `cancelled`.
 - **For M9 (security review): take a single-instance lock before sweeping, and put the work

@@ -1,32 +1,29 @@
-import type { AddressInfo } from "node:net";
-import { serve } from "@hono/node-server";
-import { createApp } from "./app.ts";
-import { type Config, ConfigError, loadConfig, scrubSecrets } from "./config.ts";
-import { createLogger } from "./logger.ts";
+import { ConfigError, scrubSecrets } from "./config.ts";
+import { AppError } from "./errors.ts";
+import { startServer } from "./server.ts";
 
-function readConfig(): Config {
-  try {
-    return loadConfig(process.env);
-  } catch (error) {
-    if (!(error instanceof ConfigError)) throw error;
+// Work from a snapshot, and drop secrets from the live environment before anything can spawn.
+const env = { ...process.env };
+scrubSecrets(process.env);
+
+try {
+  const server = await startServer({ env });
+  // Full graceful shutdown (drain, kill children) arrives with milestone 9.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK"] as const) {
+    process.once(signal, () => {
+      void server.close().then(() => process.exit(0));
+    });
+  }
+} catch (error) {
+  if (error instanceof ConfigError || error instanceof AppError) {
     console.error(`loopback: ${error.message}`);
     process.exit(1);
   }
-}
-
-const config = readConfig();
-scrubSecrets(process.env);
-const logger = createLogger({ level: config.logLevel, logPrompts: config.logPrompts });
-const app = createApp({ config, logger });
-
-const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
-  logger.info({ host: config.host, port: (info as AddressInfo).port }, "listening");
-});
-
-// Full graceful shutdown (drain, kill children) arrives with the process runner.
-for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK"] as const) {
-  process.once(signal, () => {
-    logger.info({ signal }, "shutting down");
-    server.close(() => process.exit(0));
-  });
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "EADDRINUSE" || code === "EACCES") {
+    const { address, port } = error as { address?: string; port?: number };
+    console.error(`loopback: cannot listen on ${address}:${port} (port in use or reserved)`);
+    process.exit(1);
+  }
+  throw error;
 }

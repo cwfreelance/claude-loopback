@@ -48,8 +48,22 @@ export function buildChildEnv(
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(parent)) {
-    if (value === undefined || NEVER.test(name) || !ALLOWED.has(name.toUpperCase())) continue;
+    if (value === undefined || !ALLOWED.has(name.toUpperCase())) continue;
     env[name] = value;
   }
-  return { ...env, ...FORCED };
+  return enforceChildEnvPolicy(env);
+}
+
+/**
+ * The rules every child env obeys, whatever built it: no ANTHROPIC_* or LOOPBACK_* variables, and
+ * the forced safety settings win over any other value (in any casing).
+ */
+export function enforceChildEnvPolicy(
+  env: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const forced = new Set(Object.keys(FORCED).map((name) => name.toUpperCase()));
+  const kept = Object.entries(env).filter(
+    ([name]) => !NEVER.test(name) && !forced.has(name.toUpperCase()),
+  );
+  return { ...Object.fromEntries(kept), ...FORCED };
 }

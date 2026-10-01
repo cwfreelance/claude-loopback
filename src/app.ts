@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { ClaudeBackend } from "./backends/types.ts";
 import { type Clock, systemClock } from "./clock.ts";
 import type { Config } from "./config.ts";
 import { AppError, toErrorResponse } from "./errors.ts";
@@ -14,11 +15,15 @@ import {
   rateLimit,
   requestContext,
 } from "./http/middleware.ts";
+import { registerRoutes } from "./http/routes.ts";
 import type { Logger } from "./logger.ts";
+import type { PromptService } from "./service/prompt-service.ts";
 
 export interface AppDeps {
   readonly config: Config;
   readonly logger: Logger;
+  readonly service: PromptService;
+  readonly backend: ClaudeBackend;
   readonly clock?: Clock;
 }
 
@@ -29,7 +34,13 @@ const PUBLIC_PATHS = new Set(["/health"]);
  * rate limit → JSON body guards → routes. Hosts and origins are rejected before auth, and failed
  * auth never spends rate-limit budget.
  */
-export function createApp({ config, logger, clock = systemClock }: AppDeps): Hono<AppEnv> {
+export function createApp({
+  config,
+  logger,
+  service,
+  backend,
+  clock = systemClock,
+}: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   app.use(requestContext(logger, clock));
@@ -57,7 +68,7 @@ export function createApp({ config, logger, clock = systemClock }: AppDeps): Hon
   });
   app.use(jsonBody(config.maxBodyBytes));
 
-  app.get("/health", (c) => c.json({ status: "ok" }));
+  registerRoutes(app, { service, backend });
 
   app.notFound(() => {
     throw new AppError("not_found", "No such route");

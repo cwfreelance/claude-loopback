@@ -171,7 +171,9 @@ const schema = z
  */
 export function scrubSecrets(env: Record<string, string | undefined>): void {
   for (const key of Object.keys(env)) {
-    if (key === "LOOPBACK_TOKEN" || key.startsWith("ANTHROPIC_")) delete env[key];
+    // Windows variable names are case-insensitive, so the match is too.
+    const name = key.toUpperCase();
+    if (name === "LOOPBACK_TOKEN" || name.startsWith("ANTHROPIC_")) delete env[key];
   }
 }
 
