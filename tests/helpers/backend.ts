@@ -5,6 +5,7 @@ import type {
   RunRequest,
   RunResult,
 } from "../../src/backends/types.ts";
+import { AppError } from "../../src/errors.ts";
 
 export const RESULT: RunResult = {
   text: "pong",
@@ -56,7 +57,15 @@ export class FakeBackend implements ClaudeBackend {
     const script = this.#scripts.shift() ?? {};
     this.running++;
     try {
-      if (script.hold) await new Promise<void>((resolve) => this.#releases.push(resolve));
+      if (script.hold) {
+        // Like the real backend, an abort ends a held run as cancelled.
+        await new Promise<void>((resolve, reject) => {
+          this.#releases.push(resolve);
+          const cancel = () => reject(new AppError("cancelled", "Run was cancelled"));
+          if (signal.aborted) cancel();
+          else signal.addEventListener("abort", cancel, { once: true });
+        });
+      }
       if (script.error) throw script.error;
       yield* script.events ?? [
         { type: "start", model: "m-1" },

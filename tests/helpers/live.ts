@@ -10,19 +10,21 @@ export interface LiveOptions {
   readonly cli?: Record<string, string>;
   /** Extra LOOPBACK_* settings. */
   readonly config?: Record<string, string>;
+  /** Share a work root (and so the instance lock) between servers. Default: a fresh one. */
+  readonly workRoot?: string;
 }
 
 /**
  * The real server (startServer: app, service, CLI backend, runner) on 127.0.0.1 with an ephemeral
  * port, running the fake CLI instead of claude.exe. Records the PID of every spawned process.
  */
-export async function startLive({ cli = {}, config = {} }: LiveOptions = {}) {
+export async function startLive({ cli = {}, config = {}, workRoot }: LiveOptions = {}) {
   const lines: string[] = [];
   const pids: number[] = [];
   const server = await startServer({
     env: { LOOPBACK_TOKEN: TOKEN, LOOPBACK_PORT: "0", ...config },
     claude: { command: process.execPath, prefixArgs: [FAKE_CLAUDE], env: cli },
-    workRoot: path.join(scratchRoot(), "work"),
+    workRoot: workRoot ?? path.join(scratchRoot(), "work"),
     logDestination: new Writable({
       write(chunk, _encoding, callback) {
         lines.push(String(chunk));

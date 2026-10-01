@@ -448,10 +448,27 @@ A checklist of decisions and edge cases. Each item records the choice and the re
   queue slot and temp dir until it disconnected. It still lost its CLI at the timeout, but one
   stuck script blocked everyone. Now the stream and run are aborted (`cancelled`), the slot is
   freed and the runner cleans up. Heartbeats are skipped while one is still pending.
-- **For M9 (security review): shutdown must abort open SSE streams / close all connections.**
-  `server.close()` waits forever on a stalled client.
-- **For M9: on shutdown, call `queue.close()` before aborting in-flight requests**, so queued
-  clients get `shutting_down` rather than `cancelled`.
+- **M9: startup order is config → resolve `claude.exe` → instance lock → sweep leftover work
+  dirs → CLI probe → listen.** An unusable or too-old CLI, another instance, or a busy port fails
+  with a `StartupError` and a one-line message before anything listens. A logged-out CLI still
+  starts (warning; `/ready` 503).
+- **M9: single-instance lock** at `<work root>\..\instance.lock` (created exclusively; holds PID
+  and start time). A lock whose owner is gone, or that is unreadable, is taken over. Release only
+  removes the file if this process still owns it. This resolves the M3 review's "second
+  instance sweeps the first one's dirs" finding.
+- **M9: graceful shutdown.** `close({ graceMs = 10 s })`:
+  1. Stop accepting connections.
+  2. `queue.close()`: queued requests get `shutting_down`.
+  3. In-flight runs get the grace period.
+  4. The rest are aborted through a service-wide shutdown signal and reported as 503
+     `shutting_down` (JSON) or an `error` event (SSE).
+  5. After a 1 s flush, `closeAllConnections()` drops idle keep-alives and stalled streams.
+  6. The lock is released.
+
+  A second Ctrl+C exits immediately; the job object takes the children down.
+- **M9: spawned-process boot tests only cover the fail-fast paths** (token, host, missing or
+  unusable `claude.exe`). The success path needs a working CLI at boot, and tests never run the
+  real one, so it is covered in-process through `startServer` with the fake CLI.
 - **For M9 (security review): take a single-instance lock before sweeping, and put the work
   root under `%LOCALAPPDATA%\loopback\work` rather than `%TEMP%`.** A second instance's sweep
   would otherwise delete the first instance's active dirs, and `%TEMP%` may be shared under a

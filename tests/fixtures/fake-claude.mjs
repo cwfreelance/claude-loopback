@@ -25,6 +25,8 @@ switch (scenario) {
   case "replay": {
     // Replays a captured stream-json fixture, then exits like the real CLI did.
     await text(process.stdin);
+    const delay = Number(process.env.FAKE_CLAUDE_DELAY_MS ?? "0");
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
     const fixture = process.env.FAKE_CLAUDE_FIXTURE;
     if (fixture) process.stdout.write(readFileSync(fixture, "utf8"));
     const stderr = process.env.FAKE_CLAUDE_STDERR_FILE;

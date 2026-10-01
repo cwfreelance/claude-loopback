@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { ClaudeBackend, Effort, RunEvent, RunRequest, RunResult } from "../backends/types.ts";
-import type { Clock } from "../clock.ts";
+import type { Clock, TimerHandle } from "../clock.ts";
 import type { Config } from "../config.ts";
 import { AppError } from "../errors.ts";
 import type { Logger } from "../logger.ts";
@@ -43,6 +43,11 @@ export interface PromptService {
     hooks?: RunHooks,
   ): Promise<{ result: RunResult; queueMs: number }>;
   status(): QueueStats;
+  /**
+   * Shutdown: refuses new work, lets in-flight runs finish for up to `graceMs`, then aborts the
+   * rest (they fail with shutting_down).
+   */
+  drain(graceMs: number): Promise<void>;
 }
 
 export interface PromptServiceDeps {
@@ -58,6 +63,8 @@ export interface PromptServiceDeps {
 // The CLI caps piped stdin at 10 MB; leave headroom.
 const STDIN_LIMIT_BYTES = 9 * 1024 * 1024;
 const MIN_TIMEOUT_MS = 1000;
+// After shutdown aborts the remaining runs, how long to wait for them to wind down.
+const ABORT_WAIT_MS = 5000;
 // Printable names only: no quotes, angle brackets, ampersands or control characters.
 const SAFE_ATTACHMENT_NAME = /^[^"<>&\p{Cc}]{1,200}$/u;
 
@@ -153,10 +160,27 @@ export function createPromptService(deps: PromptServiceDeps): PromptService {
     }
   }
 
+  // Each run gets its own controller, so shutdown can abort it. (AbortSignal.any with one
+  // long-lived shutdown signal leaks memory per request on Node 24.)
+  const live = new Set<AbortController>();
+  const inFlight = new Set<Promise<unknown>>();
+  let abortingForShutdown = false;
+
   async function run(input: PromptInput, context: RunContext, hooks: RunHooks = {}) {
     const progress = { queueMs: 0 };
+    const controller = new AbortController();
+    const forward = () => controller.abort();
+    if (context.signal.aborted) controller.abort();
+    else context.signal.addEventListener("abort", forward, { once: true });
+    live.add(controller);
+    const running = execute(input, { ...context, signal: controller.signal }, hooks, progress);
+    inFlight.add(running);
+    running.then(
+      () => inFlight.delete(running),
+      () => inFlight.delete(running),
+    );
     try {
-      const result = await execute(input, context, hooks, progress);
+      const result = await running;
       logger.info(
         {
           requestId: context.requestId,
@@ -170,7 +194,11 @@ export function createPromptService(deps: PromptServiceDeps): PromptService {
         "prompt finished",
       );
       return { result, queueMs: progress.queueMs };
-    } catch (error) {
+    } catch (caught) {
+      const error =
+        abortingForShutdown && caught instanceof AppError && caught.code === "cancelled"
+          ? new AppError("shutting_down", "Server is shutting down")
+          : caught;
       logger.info(
         {
           requestId: context.requestId,
@@ -180,8 +208,35 @@ export function createPromptService(deps: PromptServiceDeps): PromptService {
         "prompt failed",
       );
       throw error;
+    } finally {
+      context.signal.removeEventListener("abort", forward);
+      live.delete(controller);
     }
   }
 
-  return { run, status: () => queue.stats() };
+  /** Resolves true if `promise` settles within `ms` on the service clock. */
+  async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+    let timer: TimerHandle | undefined;
+    const expired = new Promise<boolean>((resolve) => {
+      timer = clock.setTimeout(() => resolve(false), ms);
+    });
+    try {
+      return await Promise.race([promise.then(() => true), expired]);
+    } finally {
+      if (timer !== undefined) clock.clearTimeout(timer);
+    }
+  }
+
+  async function drain(graceMs: number): Promise<void> {
+    queue.close();
+    if (inFlight.size === 0) return;
+    const settled = Promise.allSettled([...inFlight]);
+    if (await settlesWithin(settled, graceMs)) return;
+    abortingForShutdown = true;
+    for (const controller of live) controller.abort();
+    // Aborted runs normally end within moments; don't let a stuck writer block shutdown.
+    await settlesWithin(settled, ABORT_WAIT_MS);
+  }
+
+  return { run, status: () => queue.stats(), drain };
 }

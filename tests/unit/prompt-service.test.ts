@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.ts";
 import { AppError, type ErrorCode } from "../../src/errors.ts";
@@ -209,11 +210,27 @@ describe("prompt service: running", () => {
     expect(queued).toBe(0);
   });
 
-  it("passes the caller's signal to the backend", async () => {
+  it("leaves no listeners on the caller's signal once a run is over", async () => {
     const { service, backend } = setup();
+    const ok = new AbortController();
+    await service.run({ prompt: "hi" }, ctx(ok.signal));
+    backend.script({ error: new AppError("cli_failed", "boom") });
+    const failed = new AbortController();
+    await service.run({ prompt: "hi" }, ctx(failed.signal)).catch(() => {});
+    expect(getEventListeners(ok.signal, "abort")).toHaveLength(0);
+    expect(getEventListeners(failed.signal, "abort")).toHaveLength(0);
+  });
+
+  it("propagates the caller's abort to the backend", async () => {
+    const { service, backend } = setup();
+    backend.script({ hold: true });
     const controller = new AbortController();
-    await service.run({ prompt: "hi" }, ctx(controller.signal));
-    expect(backend.signals[0]).toBe(controller.signal);
+    const running = code(service.run({ prompt: "hi" }, ctx(controller.signal)));
+    await flush();
+    expect(backend.signals[0]?.aborted).toBe(false);
+    controller.abort();
+    expect(await running).toBe("cancelled");
+    expect(backend.signals[0]?.aborted).toBe(true);
   });
 
   it("never runs more than the concurrency limit at once, and measures queue time", async () => {
@@ -316,5 +333,54 @@ describe("prompt service: logging", () => {
     expect(log.entries().find((line) => line.msg === "prompt failed")).toMatchObject({
       code: "cancelled",
     });
+  });
+});
+
+describe("prompt service: drain", () => {
+  it("resolves at once when idle, and refuses new work afterwards", async () => {
+    const { service } = setup();
+    await service.drain(10_000);
+    expect(await code(service.run({ prompt: "hi" }, ctx()))).toBe("shutting_down");
+  });
+
+  it("lets in-flight runs finish within the grace period", async () => {
+    const { service, backend, clock } = setup();
+    backend.script({ hold: true });
+    const running = service.run({ prompt: "hi" }, ctx());
+    await flush();
+    const drained = service.drain(10_000);
+    clock.advance(5_000);
+    backend.release();
+    expect(await running).toMatchObject({ result: RESULT });
+    await drained;
+  });
+
+  it("fails queued requests with shutting_down", async () => {
+    const { service, backend } = setup({ LOOPBACK_MAX_CONCURRENCY: "1" });
+    backend.script({ hold: true });
+    const running = service.run({ prompt: "one" }, ctx());
+    await flush();
+    const queued = code(service.run({ prompt: "two" }, ctx()));
+    await flush();
+    const drained = service.drain(10_000);
+    expect(await queued).toBe("shutting_down");
+    backend.release();
+    await running;
+    await drained;
+  });
+
+  it("aborts runs still going after the grace period and reports shutting_down", async () => {
+    const { service, backend, clock } = setup();
+    backend.script({ hold: true });
+    const running = code(service.run({ prompt: "hi" }, ctx()));
+    await flush();
+    const drained = service.drain(10_000);
+    clock.advance(9_999);
+    await flush();
+    expect(backend.signals[0]?.aborted).toBe(false);
+    clock.advance(1);
+    expect(await running).toBe("shutting_down");
+    expect(backend.signals[0]?.aborted).toBe(true);
+    await drained;
   });
 });

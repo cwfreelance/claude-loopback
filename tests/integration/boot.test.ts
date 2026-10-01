@@ -1,14 +1,12 @@
 import { once } from "node:events";
 import { writeFileSync } from "node:fs";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startLive } from "../helpers/live.ts";
 import { scratchRoot } from "../helpers/process.ts";
-import { startServer, stopServers, TOKEN, waitForListening } from "../helpers/server.ts";
+import { startServer, stopServers, TOKEN } from "../helpers/server.ts";
 
-/** An empty file named claude.exe: enough to start, since nothing runs it at boot. */
+/** An empty file named claude.exe: it resolves, but can't run. */
 function dummyClaude(): string {
   const file = path.join(scratchRoot(), "claude.exe");
   writeFileSync(file, "");
@@ -53,36 +51,20 @@ describe("entry point (src/index.ts)", () => {
     expect(server.stderr()).toContain("LOOPBACK_HOST");
   }, 20_000);
 
-  it("starts, scrubs nothing it needs, and serves /health", async () => {
+  it("refuses to start when claude.exe can't be run, without a stack trace", async () => {
     const server = startServer({
       LOOPBACK_TOKEN: TOKEN,
       LOOPBACK_PORT: "0",
       LOOPBACK_CLAUDE_PATH: dummyClaude(),
+      // Keep the lock and work dirs out of the real %LOCALAPPDATA%.
+      LOCALAPPDATA: scratchRoot(),
     });
-    const { port, host } = await waitForListening(server);
-    expect(host).toBe("127.0.0.1");
-    const response = await fetch(`http://127.0.0.1:${port}/health`);
-    expect(await response.json()).toEqual({ status: "ok" });
-  }, 20_000);
-
-  it("explains a port that is already in use instead of crashing with a stack trace", async () => {
-    const holder = createServer();
-    holder.listen(0, "127.0.0.1");
-    await once(holder, "listening");
-    const { port } = holder.address() as AddressInfo;
-    try {
-      const server = startServer({
-        LOOPBACK_TOKEN: TOKEN,
-        LOOPBACK_PORT: String(port),
-        LOOPBACK_CLAUDE_PATH: dummyClaude(),
-      });
-      const [code] = await once(server.child, "exit");
-      expect(code).toBe(1);
-      expect(server.stderr()).toContain(`loopback: cannot listen on 127.0.0.1:${port}`);
-      expect(server.stderr()).not.toMatch(/\n\s+at /);
-    } finally {
-      holder.close();
-    }
+    const [code] = await once(server.child, "exit");
+    expect(code).toBe(1);
+    expect(server.stderr()).toContain("loopback: ");
+    expect(server.stderr()).toContain("Claude CLI");
+    expect(server.stderr()).not.toMatch(/\n\s+at /);
+    expect(server.stdout()).not.toContain("listening");
   }, 20_000);
 
   it("refuses to start when claude.exe cannot be found", async () => {
