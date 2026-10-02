@@ -16,6 +16,8 @@ import {
   waitForDeath,
 } from "../helpers/process.ts";
 
+const win32 = process.platform === "win32";
+
 const T = 20_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -104,7 +106,7 @@ describe("process runner", () => {
     T,
   );
 
-  it(
+  it.runIf(win32)(
     "kills the process and its detached grandchildren when the signal aborts",
     async () => {
       const { runner } = makeRunner();
@@ -163,7 +165,7 @@ describe("process runner", () => {
     T,
   );
 
-  it(
+  it.runIf(win32)(
     "kills the process when the consumer abandons stdout",
     async () => {
       const { runner } = makeRunner();
@@ -264,7 +266,7 @@ describe("process runner", () => {
     T,
   );
 
-  it(
+  it.runIf(win32)(
     "kills every active run's whole tree synchronously, for a forced exit",
     async () => {
       const { runner } = makeRunner();
@@ -289,7 +291,7 @@ describe("process runner", () => {
     T,
   );
 
-  it(
+  it.runIf(win32)(
     "takes the child down with the server if the server process dies",
     async () => {
       const host = spawn(

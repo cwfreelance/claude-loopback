@@ -6,6 +6,8 @@ import { loadConfig } from "../../src/config.ts";
 import { scratchRoot } from "../helpers/process.ts";
 import { ROOT } from "../helpers/server.ts";
 
+const win32 = process.platform === "win32";
+
 const CLI = path.join(ROOT, "src", "cli.ts");
 const VERSION = (
   JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string }
@@ -43,7 +45,7 @@ function cli(args: string[], env: Record<string, string>, cwd = scratchRoot()) {
 
 const tokenIn = (file: string) => /^LOOPBACK_TOKEN=(.*)$/m.exec(readFileSync(file, "utf8"))?.[1];
 
-describe("claude-loopback (the npm command)", () => {
+describe.runIf(win32)("claude-loopback (the npm command)", () => {
   it("on first run creates the settings file with a new token it never prints, then starts", () => {
     const { configFile, env } = profile();
     const result = cli([], env);

@@ -6,6 +6,8 @@ import { startLive } from "../helpers/live.ts";
 import { scratchRoot } from "../helpers/process.ts";
 import { startServer, stopServers, TOKEN } from "../helpers/server.ts";
 
+const win32 = process.platform === "win32";
+
 /** An empty file named claude.exe: it resolves, but can't run. */
 function dummyClaude(): string {
   const file = path.join(scratchRoot(), "claude.exe");
@@ -70,21 +72,25 @@ describe("entry point (src/index.ts)", () => {
     expect(server.stderr()).toContain("LOOPBACK_HOST");
   }, 20_000);
 
-  it("refuses to start when claude.exe can't be run, without a stack trace", async () => {
-    const server = startServer({
-      LOOPBACK_TOKEN: TOKEN,
-      LOOPBACK_PORT: "0",
-      LOOPBACK_CLAUDE_PATH: dummyClaude(),
-      // Keep the lock and work dirs out of the real %LOCALAPPDATA%.
-      LOCALAPPDATA: scratchRoot(),
-    });
-    const [code] = await once(server.child, "exit");
-    expect(code).toBe(1);
-    expect(server.stderr()).toContain("loopback: ");
-    expect(server.stderr()).toContain("Claude CLI");
-    expect(server.stderr()).not.toMatch(/\n\s+at /);
-    expect(server.stdout()).not.toContain("listening");
-  }, 20_000);
+  it.runIf(win32)(
+    "refuses to start when claude.exe can't be run, without a stack trace",
+    async () => {
+      const server = startServer({
+        LOOPBACK_TOKEN: TOKEN,
+        LOOPBACK_PORT: "0",
+        LOOPBACK_CLAUDE_PATH: dummyClaude(),
+        // Keep the lock and work dirs out of the real %LOCALAPPDATA%.
+        LOCALAPPDATA: scratchRoot(),
+      });
+      const [code] = await once(server.child, "exit");
+      expect(code).toBe(1);
+      expect(server.stderr()).toContain("loopback: ");
+      expect(server.stderr()).toContain("Claude CLI");
+      expect(server.stderr()).not.toMatch(/\n\s+at /);
+      expect(server.stdout()).not.toContain("listening");
+    },
+    20_000,
+  );
 
   it("refuses to start when claude.exe cannot be found", async () => {
     const server = startServer({

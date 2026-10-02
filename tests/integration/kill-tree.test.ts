@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { killTree } from "../../src/process/kill-tree.ts";
 import { FAKE_CLAUDE, isAlive, waitForDeath } from "../helpers/process.ts";
 
+const win32 = process.platform === "win32";
+
 const leftovers: number[] = [];
 afterEach(() => {
   for (const pid of leftovers.splice(0)) {
@@ -35,16 +37,20 @@ async function grandchildOf(child: ReturnType<typeof spawnFake>["child"]): Promi
 }
 
 describe("killTree", () => {
-  it("kills a process and its detached grandchildren", async () => {
-    const { child, pid } = spawnFake("grandchild");
-    const grandchildPid = await grandchildOf(child);
-    expect(isAlive(grandchildPid)).toBe(true);
+  it.runIf(win32)(
+    "kills a process and its detached grandchildren",
+    async () => {
+      const { child, pid } = spawnFake("grandchild");
+      const grandchildPid = await grandchildOf(child);
+      expect(isAlive(grandchildPid)).toBe(true);
 
-    await killTree(pid);
+      await killTree(pid);
 
-    await waitForDeath(pid);
-    await waitForDeath(grandchildPid);
-  }, 20_000);
+      await waitForDeath(pid);
+      await waitForDeath(grandchildPid);
+    },
+    20_000,
+  );
 
   it("is needed: killing only the parent leaves the grandchild running", async () => {
     const { child, pid } = spawnFake("grandchild");
@@ -55,10 +61,14 @@ describe("killTree", () => {
     expect(isAlive(grandchildPid)).toBe(true);
   }, 20_000);
 
-  it("resolves for a process that has already exited", async () => {
-    const { child, pid } = spawnFake("lines");
-    await new Promise((resolve) => child.once("exit", resolve));
-    await waitForDeath(pid);
-    await expect(killTree(pid)).resolves.toBeUndefined();
-  }, 20_000);
+  it.runIf(win32)(
+    "resolves for a process that has already exited",
+    async () => {
+      const { child, pid } = spawnFake("lines");
+      await new Promise((resolve) => child.once("exit", resolve));
+      await waitForDeath(pid);
+      await expect(killTree(pid)).resolves.toBeUndefined();
+    },
+    20_000,
+  );
 });

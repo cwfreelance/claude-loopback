@@ -9,6 +9,8 @@ import {
 import { AppError } from "../../src/errors.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
+const win32 = process.platform === "win32";
+
 describe("parseVersion", () => {
   it.each([
     ["2.1.287 (Claude Code)\n", "2.1.287"],
@@ -62,7 +64,7 @@ describe("resolveClaudePath", () => {
     await unavailable(resolveClaudePath(path.join(scratchRoot(), "claude.exe"), {}));
   });
 
-  it("finds claude.exe on PATH, whatever the variable's casing", async () => {
+  it.runIf(win32)("finds claude.exe on PATH, whatever the variable's casing", async () => {
     const empty = dirWith();
     const bin = dirWith("claude.exe");
     expect(await resolveClaudePath(undefined, { Path: `${empty};${bin}` })).toBe(
@@ -70,13 +72,13 @@ describe("resolveClaudePath", () => {
     );
   });
 
-  it("refuses a .cmd shim and says how to fix it", async () => {
+  it.runIf(win32)("refuses a .cmd shim and says how to fix it", async () => {
     const bin = dirWith("claude.cmd");
     const error = await unavailable(resolveClaudePath(undefined, { PATH: bin }));
     expect(error.message).toContain("LOOPBACK_CLAUDE_PATH");
   });
 
-  it("ignores relative PATH entries", async () => {
+  it.runIf(win32)("ignores relative PATH entries", async () => {
     const bin = dirWith("claude.exe");
     // path.relative can't cross drives (on CI the repo is on D:, temp on C:); then use the
     // drive-relative form "C:Users\...", which is just as relative.
