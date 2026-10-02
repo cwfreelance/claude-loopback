@@ -21,7 +21,10 @@ Node 24 · TypeScript (strict) · Hono + @hono/node-server · Zod · Vitest · B
 - `pnpm run e2e`: manual smoke test against a running server and the REAL CLI. Spends usage,
   so ask before running it.
 - `pnpm run dev`: `node --watch src/index.ts` (Node strips TS types natively; loads `.env`)
-- `pnpm run build` / `pnpm start`: `tsc` to `dist/` / run the build
+- `pnpm run build` / `pnpm start`: clean `tsc` build to `dist/` / run the build
+- `node src/cli.ts <start|setup|token|config>`: the npm command from source. Publishing
+  (`npm publish`) runs check, then build, via `prepublishOnly`/`prepack`; only `dist/`,
+  `.env.example` and `docs/openapi.json` ship (see `files` in package.json).
 - `pnpm run token`: print a new random `LOOPBACK_TOKEN`
 
 Imports between `.ts` files use the `.ts` extension (rewritten to `.js` on build). Use only
@@ -33,9 +36,15 @@ now, `ApiBackend` (BYOK) later; routes never know which one is active. Config, l
 backend and spawner are injected so every layer is testable alone.
 
 - `src/config.ts`: Zod env schema → frozen `Config`. `src/errors.ts`: `AppError`, code → status.
-- `src/logger.ts`: pino with redaction. `src/clock.ts`: injectable time.
+- `src/logger.ts`: pino with redaction; JSON or pretty (`src/log-format.ts`, pino-pretty).
+  `src/clock.ts`: injectable time.
 - `src/app.ts`: `createApp(deps)` (Hono). `src/server.ts`: `startServer` (all wiring, startup
-  checks, graceful close). `src/index.ts`: thin process entry.
+  checks, graceful close). `src/run.ts`: `runServer` (signals, startup errors, banner from
+  `src/banner.ts`).
+- Entry points: `src/cli.ts` is the npm `claude-loopback` command (settings in
+  `%APPDATA%\claude-loopback\config.env`); `src/index.ts` is `pnpm start`/`dev` from a clone
+  (`.env`). `src/setup.ts`: setup checks for both; `src/token-file.ts` + `src/file-acl.ts`:
+  token file written readable only by the current user.
 - `src/http/`: middleware, schemas (Zod, also the OpenAPI source), routes, SSE, openapi.
 - `src/service/`: prompt service (policy, attachments, run loop, drain), queue.
 - `src/backends/`: `types.ts` + `cli/` (args, env, stream parser, classify, probe).

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { loadConfig } from "./config.ts";
 import { restrictToCurrentUser } from "./file-acl.ts";
 
@@ -66,6 +67,7 @@ export async function ensureTokenFile(file: string, template: string): Promise<T
   let outcome: TokenFileResult["outcome"];
   let content: string;
   if (!existsSync(file)) {
+    mkdirSync(path.dirname(file), { recursive: true });
     outcome = "created";
     content = withToken(template);
   } else {

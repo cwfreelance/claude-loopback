@@ -23,29 +23,30 @@ your script ──HTTP──▶ claude-loopback (127.0.0.1) ──▶ claude -p 
 
 - **Windows 10 or 11.** Windows is the only supported platform for now.
 - **[Node.js](https://nodejs.org) 24 or newer.**
-- **pnpm:** run `corepack enable pnpm`, or `npm install -g pnpm`.
-- **[Git](https://git-scm.com).**
 - **[Claude Code](https://claude.com/claude-code) 2.1.259 or newer**, logged in. Run `claude`
   once and type `/login`.
 
 ## Install
 
 ```powershell
-git clone https://github.com/ssaarthakk/claude-loopback.git
-cd claude-loopback
-pnpm install
-pnpm run setup        # creates .env with a secret token and checks your machine
-pnpm run build
+npm install -g claude-loopback
+claude-loopback setup     # creates your settings with a secret token and checks your machine
 ```
 
-`pnpm run setup` should end with `Ready.`. If it lists something to fix, fix it and run it again.
-The token lives in `.env`. Keep that file private: anyone who has the token can use your Claude
-subscription through the server.
+`claude-loopback setup` should end with `Ready.`. If it lists something to fix, fix it and run it
+again. (You can skip it: the first `claude-loopback` run creates the settings too. Setup just
+tells you up front if anything is missing.)
+
+Don't want to install anything? `npx claude-loopback` runs the latest version directly.
+
+Your settings and token live in a file only your Windows account can read:
+`%APPDATA%\claude-loopback\config.env` (`claude-loopback config` prints the exact path). Keep the
+token private: anyone who has it can use your Claude subscription through the server.
 
 ## Run
 
 ```powershell
-pnpm start
+claude-loopback
 ```
 
 It prints a short summary (the API address, your Claude Code version and login, and the allowed
@@ -55,15 +56,23 @@ use it.
 - **Stop:** press **Ctrl+C**. Running prompts get up to 10 seconds to finish. Press Ctrl+C again
   to stop immediately.
 - **Port:** it listens on `http://127.0.0.1:7337` by default. Change that with `LOOPBACK_PORT` in
-  `.env`.
+  your settings file.
+
+| Command | What it does |
+|---|---|
+| `claude-loopback` | Start the server (same as `claude-loopback start`) |
+| `claude-loopback setup` | Create your settings if needed and check Node, Claude Code and its login |
+| `claude-loopback token` | Print your token, for your scripts |
+| `claude-loopback config` | Print where your settings file is |
+| `claude-loopback --version` | Print the version |
 
 ## Check it's working
 
-In a second PowerShell window, in the project folder:
+In a second PowerShell window:
 
 ```powershell
-# Load your token from .env (don't type or paste it: shell history keeps what you type)
-$env:LOOPBACK_TOKEN = (Select-String -Path .env -Pattern '^LOOPBACK_TOKEN=(.+)$').Matches[0].Groups[1].Value
+# Load your token (don't type or paste it: shell history keeps what you type)
+$env:LOOPBACK_TOKEN = (claude-loopback token)
 
 curl.exe http://127.0.0.1:7337/health
 curl.exe http://127.0.0.1:7337/ready -H "Authorization: Bearer $env:LOOPBACK_TOKEN"
@@ -239,12 +248,14 @@ print(response.json()["structuredOutput"]["answer"])
 
 ## Configuration
 
-Settings live in `.env`. `pnpm start` reads that file, and `.env.example` documents every
-setting. A wrong or misspelled `LOOPBACK_*` setting stops the server with a clear message.
+Settings live in your settings file: run `claude-loopback config` to see where, then edit it in
+any text editor and restart the server. It lists every setting with its default. Environment
+variables with the same names take precedence over the file. A wrong or misspelled `LOOPBACK_*`
+setting stops the server with a clear message.
 
 | Setting | Default | What it controls |
 |---|---|---|
-| `LOOPBACK_TOKEN` | *(set by setup)* | **Required.** The secret every request must send. |
+| `LOOPBACK_TOKEN` | *(set by setup)* | **Required.** The secret every request must send (at least 43 random characters). |
 | `LOOPBACK_PORT` | `7337` | Port on `127.0.0.1`. |
 | `LOOPBACK_CLAUDE_PATH` | found on PATH | Full path to `claude.exe`, if it isn't on PATH. |
 | `LOOPBACK_MAX_CONCURRENCY` | `2` | Prompts running at the same time. |
@@ -269,27 +280,29 @@ network.
 ## Updating
 
 ```powershell
-git pull
-pnpm install
-pnpm run build
+npm install -g claude-loopback@latest
 ```
 
-Then restart `pnpm start`. If you update Claude Code itself, run `pnpm run setup` again to re-check
-it.
+Then restart `claude-loopback`. Your settings and token are kept. If you update Claude Code itself,
+run `claude-loopback setup` again to re-check it.
+
+To uninstall: `npm uninstall -g claude-loopback`, then delete the folder that
+`claude-loopback config` showed.
 
 ## Troubleshooting
 
 | You see | Fix |
 |---|---|
-| `LOOPBACK_TOKEN: is required` | Run `pnpm run setup`. |
-| `claude.exe was not found on PATH` | Install Claude Code, or set `LOOPBACK_CLAUDE_PATH` in `.env`. |
+| `'claude-loopback' is not recognized` | Open a new terminal after installing. If it persists, check that the folder `npm prefix -g` prints is on your PATH. |
+| `npm error EBADPLATFORM` | Only Windows is supported for now. |
+| `claude.exe was not found on PATH` | Install Claude Code, or set `LOOPBACK_CLAUDE_PATH` in your settings file. |
 | `Only a claude.cmd/.bat shim is on PATH` | Set `LOOPBACK_CLAUDE_PATH` to the real `claude.exe`. |
 | `Claude CLI … is older than the minimum supported 2.1.259` | Run `claude update`. |
 | `Claude CLI could not be run` | Reinstall Claude Code, or check `LOOPBACK_CLAUDE_PATH`. |
-| `Another loopback instance is already running` | It's already running in another window; use that one or stop it. |
+| `Another claude-loopback instance is already running` | It's already running in another window; use that one or stop it. |
 | `cannot listen on 127.0.0.1:7337` | Something else uses that port: set another `LOOPBACK_PORT`. |
 | `/ready` says *not logged in* | Run `claude`, type `/login`. |
-| `401 unauthorized` | Your script's token doesn't match `.env`. |
+| `401 unauthorized` | Your script's token doesn't match: reload it with `claude-loopback token`. |
 | `403 forbidden_host` | Use `http://127.0.0.1:…`, not a hostname. |
 | `429 usage_limit` | Your Claude usage limit is reached. Wait for `Retry-After` seconds. |
 
@@ -303,10 +316,10 @@ What claude-loopback protects against:
 - **Access without the token:** requests that do work need the token. It's compared in constant
   time, only its hash is kept in memory, and it must be at least 43 random characters (256 bits),
   so it can't be guessed.
-- **Other accounts on the same PC:** setup writes the token file so that only your Windows
-  account can read it, even in a folder that every account can open (like one made at the root of
-  `C:\`). Setup also warns when the project itself is outside your user folder, where other
-  accounts might be able to change its code.
+- **Other accounts on the same PC:** the settings file holding the token is written so that only
+  your Windows account can read it, even in a folder that every account can open (like one made
+  at the root of `C:\`). When running from a clone, setup also warns if the project is outside
+  your user folder, where other accounts might be able to change its code.
 - **Requests widening their own permissions:** tools, model and time limits are checked against
   your settings, and values are passed to Claude Code so they can't be read as extra
   command-line flags.
@@ -324,7 +337,7 @@ What claude-loopback protects against:
   `LOOPBACK_LOG_PROMPTS`.
 
 What it can't protect against:
-- **Malware running as your own Windows user.** It can read `.env` (and so the token), or your
+- **Malware running as your own Windows user.** It can read your settings file (and so the token), or your
   Claude login, directly.
 - **Risks you opt into by enabling tools.** With `WebFetch`/`WebSearch` on, text inside an
   attachment could make Claude fetch a hostile URL. Enable tools only for content you trust.
@@ -366,6 +379,22 @@ sequenceDiagram
 - **Windows only.**
 
 ## Contributing
+
+To run from source you also need [Git](https://git-scm.com) and pnpm (`corepack enable pnpm`).
+Clone under your user folder (e.g. `C:\Users\you\code`), not a folder at the root of `C:\`,
+which other accounts on the PC can usually change.
+
+```powershell
+git clone https://github.com/ssaarthakk/claude-loopback.git
+cd claude-loopback
+pnpm install
+pnpm run setup          # creates .env (settings + token) and checks your machine
+pnpm run build
+pnpm start              # or: pnpm run dev, which restarts on changes
+```
+
+A clone reads its settings from `.env` in the project folder instead of the per-user settings
+file, and `pnpm start` runs the same server as `claude-loopback`.
 
 ```powershell
 pnpm run dev            # run from source with auto-restart
