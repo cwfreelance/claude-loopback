@@ -7,6 +7,8 @@ import { loadConfig } from "../../src/config.ts";
 import { aclSids, grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from "../helpers/acl.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
+const win32 = process.platform === "win32";
+
 const SCRIPT = fileURLToPath(new URL("../../scripts/setup.ts", import.meta.url));
 const EXAMPLE = "# Required.\nLOOPBACK_TOKEN=\n\n# Optional.\n# LOOPBACK_PORT=7337\n";
 
@@ -21,7 +23,7 @@ function run(dir: string, env: Record<string, string> = {}) {
 
 const tokenIn = (file: string) => /^LOOPBACK_TOKEN=(.*)$/m.exec(readFileSync(file, "utf8"))?.[1];
 
-describe("pnpm run setup", () => {
+describe.runIf(win32)("pnpm run setup", () => {
   it("creates .env from .env.example with a fresh, valid token it never prints", () => {
     const dir = scratchRoot();
     writeFileSync(path.join(dir, ".env.example"), EXAMPLE);

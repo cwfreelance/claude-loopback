@@ -9,8 +9,11 @@ permissions:
 
 jobs:
   check:
-    # v1 supports Windows only; process-tree tests rely on taskkill.
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

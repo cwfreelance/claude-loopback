@@ -10,6 +10,8 @@ import { acquireInstanceLock } from "../../src/process/instance-lock.ts";
 import { StartupError } from "../../src/startup-error.ts";
 import { scratchRoot, waitForDeath } from "../helpers/process.ts";
 
+const win32 = process.platform === "win32";
+
 const workRoot = () => path.join(scratchRoot(), "work");
 const HOLDER = fileURLToPath(new URL("../fixtures/lock-holder.ts", import.meta.url));
 
@@ -22,7 +24,7 @@ async function refused(promise: Promise<unknown>): Promise<StartupError> {
   return error as StartupError;
 }
 
-describe("acquireInstanceLock", () => {
+describe.runIf(win32)("acquireInstanceLock", () => {
   it("refuses a second holder for the same work root", async () => {
     const root = workRoot();
     const lock = await acquireInstanceLock(root);

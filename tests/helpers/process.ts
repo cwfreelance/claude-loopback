@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
@@ -12,9 +12,12 @@ import { createTempDirs } from "../../src/process/temp-dir.ts";
 
 export const FAKE_CLAUDE = fileURLToPath(new URL("../fixtures/fake-claude.mjs", import.meta.url));
 
-/** A fresh, empty directory under the OS temp dir for one test. */
+/**
+ * A fresh, empty directory under the OS temp dir for one test. Canonical (symlinks resolved:
+ * macOS's /var is /private/var), so it compares equal to a path the OS reports, e.g. a child's cwd.
+ */
 export function scratchRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), "loopback-test-"));
+  return realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "loopback-test-")));
 }
 
 export function captureLogger() {

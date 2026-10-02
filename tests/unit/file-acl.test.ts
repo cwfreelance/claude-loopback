@@ -5,7 +5,9 @@ import { restrictToCurrentUser } from "../../src/file-acl.ts";
 import { aclSids, makeSharedDir, onlyOwnerAccess, SID } from "../helpers/acl.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
-describe("restrictToCurrentUser", () => {
+const win32 = process.platform === "win32";
+
+describe.runIf(win32)("restrictToCurrentUser", () => {
   it("leaves no other account on a file that inherited shared access", async () => {
     const dir = scratchRoot();
     makeSharedDir(dir);

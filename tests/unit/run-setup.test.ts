@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { defaultSettingsFile, readSettings, runSetup, type SetupOptions } from "../../src/setup.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
+const win32 = process.platform === "win32";
+
 function setup(overrides: Partial<SetupOptions> = {}) {
   const lines: string[] = [];
   const file = overrides.file ?? path.join(scratchRoot(), "config.env");
@@ -27,7 +29,7 @@ function dummyClaude(): string {
   return file;
 }
 
-describe("runSetup", () => {
+describe.runIf(win32)("runSetup", () => {
   it("creates the settings and is ready when checks are skipped", async () => {
     const { problems, output, file } = await setup({ skipChecks: true });
     expect(problems).toBe(0);
@@ -91,7 +93,7 @@ describe("runSetup", () => {
   }, 20_000);
 });
 
-describe("defaultSettingsFile", () => {
+describe.runIf(win32)("defaultSettingsFile", () => {
   it("uses %APPDATA%\\claude-loopback\\config.env", () => {
     expect(defaultSettingsFile({ APPDATA: "C:\\Users\\me\\AppData\\Roaming" })).toBe(
       "C:\\Users\\me\\AppData\\Roaming\\claude-loopback\\config.env",
