@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -33,6 +33,15 @@ export interface SetupOptions {
 }
 
 const DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
+
+/** Long, real, lower-cased form, so 8.3 short names (C:\Users\RUNNER~1) compare equal. */
+function canonical(dir: string): string {
+  try {
+    return realpathSync.native(dir).toLowerCase();
+  } catch {
+    return path.resolve(dir).toLowerCase();
+  }
+}
 
 /**
  * Where the installed command keeps its settings: %APPDATA%\claude-loopback\config.env, a
@@ -120,11 +129,10 @@ export async function runSetup(options: SetupOptions): Promise<number> {
   // In a shared folder (like one made at the root of C:\) other accounts may be able to change
   // the code itself, and so run their code as you. Only a warning: the folder may be private.
   const home = options.env.USERPROFILE;
-  const here = `${path.resolve(process.cwd()).toLowerCase()}${path.sep}`;
   if (
     options.warnOutsideProfile &&
     home !== undefined &&
-    !here.startsWith(`${path.resolve(home).toLowerCase()}${path.sep}`)
+    !`${canonical(process.cwd())}${path.sep}`.startsWith(`${canonical(home)}${path.sep}`)
   ) {
     warn(
       "the project is outside your user folder, where other accounts may be able to change it",

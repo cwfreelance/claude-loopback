@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.ts";
 import { ensureTokenFile, newToken } from "../../src/token-file.ts";
-import { aclSids, currentUserSid, grantExplicitly, makeSharedDir, SID } from "../helpers/acl.ts";
+import { aclSids, grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from "../helpers/acl.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
 const TEMPLATE = "# Required.\nLOOPBACK_TOKEN=\n# LOOPBACK_PORT=7337\n";
@@ -68,14 +68,14 @@ describe("ensureTokenFile", () => {
     expect(readFileSync(file, "utf8")).toBe(quoted);
   }, 20_000);
 
-  it("leaves only the current user and SYSTEM with access, whatever the file had", async () => {
+  it("leaves no other account with access, whatever the file had", async () => {
     const dir = scratchRoot();
     makeSharedDir(dir);
     const file = path.join(dir, "config.env");
     writeFileSync(file, KEPT);
     grantExplicitly(file, SID.everyone);
     await ensureTokenFile(file, TEMPLATE);
-    expect(aclSids(file).sort()).toEqual([currentUserSid(), SID.system].sort());
+    expect(onlyOwnerAccess(file)).toBe(true);
   }, 20_000);
 
   it("leaves no temporary files behind", async () => {

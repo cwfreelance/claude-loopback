@@ -8,7 +8,19 @@ export const SID = {
   authenticatedUsers: "S-1-5-11",
   users: "S-1-5-32-545",
   system: "S-1-5-18",
+  administrators: "S-1-5-32-544",
 } as const;
+
+/**
+ * The access rules on a locked-down file: the current user, SYSTEM, and at most Administrators
+ * (Windows adds an explicit entry for it on files created by an elevated administrator, e.g. on
+ * CI runners; administrators can take ownership of any file anyway). Never anyone else.
+ */
+export function onlyOwnerAccess(file: string): boolean {
+  const allowed = new Set([currentUserSid(), SID.system, SID.administrators]);
+  const sids = aclSids(file);
+  return sids.includes(currentUserSid()) && sids.every((sid) => allowed.has(sid));
+}
 
 export function currentUserSid(): string {
   const csv = execFileSync(

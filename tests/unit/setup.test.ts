@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.ts";
-import { aclSids, currentUserSid, grantExplicitly, makeSharedDir, SID } from "../helpers/acl.ts";
+import { aclSids, grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from "../helpers/acl.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
 const SCRIPT = fileURLToPath(new URL("../../scripts/setup.ts", import.meta.url));
@@ -69,7 +69,7 @@ describe("pnpm run setup", () => {
     const dir = scratchRoot();
     makeSharedDir(dir);
     expect(run(dir).status).toBe(0);
-    expect(aclSids(path.join(dir, ".env")).sort()).toEqual([currentUserSid(), SID.system].sort());
+    expect(onlyOwnerAccess(path.join(dir, ".env"))).toBe(true);
   }, 20_000);
 
   it("also locks down an existing .env whose token it keeps", () => {
@@ -90,7 +90,7 @@ describe("pnpm run setup", () => {
     grantExplicitly(env, SID.authenticatedUsers);
     expect(aclSids(env)).toContain(SID.authenticatedUsers); // the precondition really holds
     expect(run(dir).status).toBe(0);
-    expect(aclSids(env).sort()).toEqual([currentUserSid(), SID.system].sort());
+    expect(onlyOwnerAccess(env)).toBe(true);
     expect(readFileSync(env, "utf8")).toBe(
       "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n",
     );

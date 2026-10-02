@@ -25,6 +25,8 @@ async function currentUserSid(): Promise<string> {
  * Limits `file` to the current user and SYSTEM: removes inherited entries, so a file created in a
  * folder every account can write (e.g. one made at the root of C:\) doesn't share its secrets.
  * By SID, so it works in any OS language. Rejects if the file doesn't exist or icacls fails.
+ * (A file created by an elevated administrator also keeps an explicit Administrators entry;
+ * administrators can take ownership of any file anyway.)
  */
 export async function restrictToCurrentUser(file: string): Promise<void> {
   const sid = await currentUserSid();

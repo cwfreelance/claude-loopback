@@ -78,7 +78,14 @@ describe("resolveClaudePath", () => {
 
   it("ignores relative PATH entries", async () => {
     const bin = dirWith("claude.exe");
-    const relative = path.relative(process.cwd(), bin);
+    // path.relative can't cross drives (on CI the repo is on D:, temp on C:); then use the
+    // drive-relative form "C:Users\...", which is just as relative.
+    const sameDrive =
+      path.parse(bin).root.toLowerCase() === path.parse(process.cwd()).root.toLowerCase();
+    const relative = sameDrive
+      ? path.relative(process.cwd(), bin)
+      : bin.replace(/^([A-Za-z]:)[\\/]/, "$1");
+    expect(path.isAbsolute(relative)).toBe(false);
     await unavailable(resolveClaudePath(undefined, { PATH: `.;${relative}` }));
   });
 
