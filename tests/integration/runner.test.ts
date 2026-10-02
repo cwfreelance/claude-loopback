@@ -265,6 +265,31 @@ describe("process runner", () => {
   );
 
   it(
+    "kills every active run's whole tree synchronously, for a forced exit",
+    async () => {
+      const { runner } = makeRunner();
+      const first = await runner.start(fakeSpec("grandchild"));
+      const second = await runner.start(fakeSpec("hang"));
+      const grandchildPid = (
+        JSON.parse(String((await first.stdout[Symbol.asyncIterator]().next()).value)) as {
+          pid: number;
+        }
+      ).pid;
+      try {
+        runner.killAllSync();
+        // Synchronous: by the time it returns, taskkill has finished with every tree.
+        await waitForDeath(first.pid, 2000);
+        await waitForDeath(second.pid, 2000);
+        await waitForDeath(grandchildPid, 2000);
+        await Promise.all([first.exit, second.exit]);
+      } finally {
+        if (isAlive(grandchildPid)) process.kill(grandchildPid);
+      }
+    },
+    T,
+  );
+
+  it(
     "takes the child down with the server if the server process dies",
     async () => {
       const host = spawn(

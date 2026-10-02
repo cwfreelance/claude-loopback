@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -32,4 +32,23 @@ export async function killTree(pid: number): Promise<void> {
   } catch (error) {
     if ((error as { code?: unknown }).code !== NOT_FOUND) throw error;
   }
+}
+
+/**
+ * Synchronous tree kill for the moment just before a forced exit, when nothing async will run
+ * again. Best effort: failures are ignored.
+ */
+export function killTreeSync(pid: number): void {
+  try {
+    if (process.platform !== "win32") {
+      process.kill(pid, "SIGKILL");
+      return;
+    }
+    execFileSync(TASKKILL, ["/PID", String(pid), "/T", "/F"], {
+      windowsHide: true,
+      env: { SystemRoot: SYSTEM_ROOT },
+      timeout: HELPER_TIMEOUT_MS,
+      stdio: "ignore",
+    });
+  } catch {}
 }

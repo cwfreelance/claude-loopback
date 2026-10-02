@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-export const TOKEN = "kV3x9-Qe7Lp2Rw8Zt4Yb6Nc1Md5Hf0Ja2S";
+export const TOKEN = "5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE";
 
 const children: ChildProcess[] = [];
 

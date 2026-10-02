@@ -75,7 +75,13 @@ export function buildArgs(request: RunRequest, policy: ArgsPolicy): string[] {
     args.push(`--append-system-prompt=${request.systemPrompt}`);
   }
   if (request.jsonSchema !== undefined) {
-    args.push(`--json-schema=${JSON.stringify(request.jsonSchema)}`);
+    let schema: string;
+    try {
+      schema = JSON.stringify(request.jsonSchema);
+    } catch {
+      throw invalid("jsonSchema cannot be serialized"); // e.g. too deep (RangeError)
+    }
+    args.push(`--json-schema=${schema}`);
   }
 
   if (args.reduce((total, arg) => total + quotedLength(arg), 0) > MAX_COMMAND_LINE) {

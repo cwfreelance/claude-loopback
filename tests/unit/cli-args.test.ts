@@ -90,6 +90,10 @@ describe("buildArgs", () => {
     ["a tool list injection", { tools: ["Read,Bash"] }],
     ["an unknown effort", { effort: "ultra" as RunRequest["effort"] }],
     ["a NUL character in the system prompt", { systemPrompt: "a\u0000b" }],
+    [
+      "a jsonSchema too deep to serialize",
+      { jsonSchema: JSON.parse(`${'{"a":'.repeat(100_000)}{}${"}".repeat(100_000)}`) },
+    ],
   ])("rejects %s", (_name, overrides) => {
     expect(invalid(overrides).code).toBe("invalid_request");
   });

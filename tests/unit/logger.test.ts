@@ -122,6 +122,87 @@ describe("createLogger", () => {
     expect(output()).toContain("my private prompt");
   });
 
+  describe("pretty format", () => {
+    const pretty = (logPrompts = false) => {
+      const { destination, output } = capture();
+      const logger = createLogger({
+        level: "info",
+        logPrompts,
+        destination,
+        format: "pretty",
+        colorize: false,
+      });
+      return { logger, output };
+    };
+
+    it("writes one readable line per entry, not JSON", () => {
+      const { logger, output } = pretty();
+      logger.info(
+        {
+          requestId: "3f2a9c1e-5b6d-4e7f-8a9b-0c1d2e3f4a5b",
+          method: "POST",
+          path: "/v1/prompt",
+          status: 200,
+          durationMs: 1240,
+        },
+        "request",
+      );
+      const text = output();
+      expect(text).toMatch(
+        /^\d\d:\d\d:\d\d INFO: POST \/v1\/prompt {2}200 {2}1\.24s {2}#3f2a9c1e\n$/,
+      );
+      expect(() => JSON.parse(text)).toThrow();
+    });
+
+    it("still redacts credentials and prompt contents", () => {
+      const { logger, output } = pretty();
+      logger.info(sensitive, "request");
+      logger.info({ req: sensitive }, "x");
+      const text = output();
+      expect(text).toContain("INFO: request");
+      expect(text).toContain("[redacted]");
+      expect(text).not.toContain("s3cret-token");
+      expect(text).not.toContain("private");
+    });
+
+    it("shows prompt contents only with prompt logging on, and never credentials", () => {
+      const { logger, output } = pretty(true);
+      logger.info(
+        { prompt: "visible prompt", headers: { authorization: "Bearer s3cret-token" } },
+        "x",
+      );
+      expect(output()).toContain("INFO: x");
+      expect(output()).toContain("visible prompt");
+      expect(output()).not.toContain("s3cret-token");
+    });
+
+    it("writes no color codes when colors are off", () => {
+      const { logger, output } = pretty();
+      logger.warn({ status: 500 }, "something");
+      expect(output()).toContain("WARN: something");
+      expect(output()).not.toContain("\u001b[");
+    });
+
+    it("colors the output when asked to", () => {
+      const { destination, output } = capture();
+      createLogger({
+        level: "info",
+        logPrompts: false,
+        destination,
+        format: "pretty",
+        colorize: true,
+      }).info({ requestId: "r", method: "GET", path: "/", status: 500, durationMs: 1 }, "request");
+      expect(output()).toContain("\u001b[");
+    });
+
+    it("hides the message of unexpected errors, as JSON mode does", () => {
+      const { logger, output } = pretty();
+      logger.error({ err: new SyntaxError('"my private prompt" is not valid JSON') }, "x");
+      expect(output()).toContain("ERROR: x  err=SyntaxError");
+      expect(output()).not.toContain("private");
+    });
+  });
+
   it("writes nothing when silent", () => {
     const { destination, output } = capture();
     createLogger({ level: "silent", logPrompts: false, destination }).error("nope");

@@ -1,13 +1,11 @@
-# loopback
+# claude-loopback
 
 A personal, localhost-only HTTP server that runs prompts through `claude -p` (Claude Code
 headless mode) and returns JSON or streams SSE. Only for the owner's local scripts. Never
 public, never multi-user, not a Messages API clone.
 
 ## Status & workflow
-- Work proceeds in phases from `docs/loopback-claude-code-prompt.md`. Stop for approval at the
-  end of every phase and every milestone.
-- `docs/DECISIONS.md` is the decision log. Record each decision with a one-line reason.
+- Work in small, complete features. Stop for approval at the end of each one.
 - **Platform: Windows only in v1.** macOS/Linux come later, so keep OS-specific code behind a
   small seam.
 
@@ -18,7 +16,10 @@ Node 24 · TypeScript (strict) · Hono + @hono/node-server · Zod · Vitest · B
 - `pnpm run check`: lint + typecheck + test (the gate; must pass before any commit)
 - `pnpm run lint` / `pnpm run format`: Biome check / Biome check --write
 - `pnpm run typecheck`: `tsc --noEmit` (also type-checks the `.mjs` hook scripts)
-- `pnpm run test`: Vitest, run once
+- `pnpm run test` / `pnpm run test:coverage`: Vitest once / with the 85%/80% coverage gate (CI)
+- `pnpm run openapi`: regenerate `docs/openapi.json` after any API change (a test checks drift)
+- `pnpm run e2e`: manual smoke test against a running server and the REAL CLI. Spends usage,
+  so ask before running it.
 - `pnpm run dev`: `node --watch src/index.ts` (Node strips TS types natively; loads `.env`)
 - `pnpm run build` / `pnpm start`: `tsc` to `dist/` / run the build
 - `pnpm run token`: print a new random `LOOPBACK_TOKEN`
@@ -33,12 +34,13 @@ backend and spawner are injected so every layer is testable alone.
 
 - `src/config.ts`: Zod env schema → frozen `Config`. `src/errors.ts`: `AppError`, code → status.
 - `src/logger.ts`: pino with redaction. `src/clock.ts`: injectable time.
-- `src/app.ts`: `createApp(deps)` (Hono). `src/index.ts`: boot.
-- `src/http/`: middleware, schemas, routes, SSE. `src/service/`: prompt service, queue.
+- `src/app.ts`: `createApp(deps)` (Hono). `src/server.ts`: `startServer` (all wiring, startup
+  checks, graceful close). `src/index.ts`: thin process entry.
+- `src/http/`: middleware, schemas (Zod, also the OpenAPI source), routes, SSE, openapi.
+- `src/service/`: prompt service (policy, attachments, run loop, drain), queue.
 - `src/backends/`: `types.ts` + `cli/` (args, env, stream parser, classify, probe).
-- `src/process/`: runner (buffered stdout, caps, timeout/abort), tree kill, temp dirs.
-
-The full plan and decision log live in `docs/DECISIONS.md`.
+- `src/process/`: runner (buffered stdout, caps, timeout/abort), tree kill, temp dirs,
+  instance lock (named pipe).
 
 Dev tooling: `.claude/hooks/` (format on edit, commit-message check, stop gate),
 `scripts/commit-format.mjs` (commit rules, shared with `.githooks/commit-msg`).

@@ -21,8 +21,13 @@ export interface LiveOptions {
 export async function startLive({ cli = {}, config = {}, workRoot }: LiveOptions = {}) {
   const lines: string[] = [];
   const pids: number[] = [];
+  const env: Record<string, string | undefined> = {
+    LOOPBACK_TOKEN: TOKEN,
+    LOOPBACK_PORT: "0",
+    ...config,
+  };
   const server = await startServer({
-    env: { LOOPBACK_TOKEN: TOKEN, LOOPBACK_PORT: "0", ...config },
+    env,
     claude: { command: process.execPath, prefixArgs: [FAKE_CLAUDE], env: cli },
     workRoot: workRoot ?? path.join(scratchRoot(), "work"),
     logDestination: new Writable({
@@ -32,6 +37,7 @@ export async function startLive({ cli = {}, config = {}, workRoot }: LiveOptions
       },
     }),
     wrapRunner: (runner): ProcessRunner => ({
+      killAllSync: () => runner.killAllSync(),
       async start(spec) {
         const run = await runner.start(spec);
         pids.push(run.pid);
@@ -42,6 +48,8 @@ export async function startLive({ cli = {}, config = {}, workRoot }: LiveOptions
   return {
     ...server,
     url: `http://127.0.0.1:${server.port}`,
+    /** The settings object handed to startServer, as it is after startup. */
+    env,
     pids,
     logs: () => lines.map((line) => JSON.parse(line) as Record<string, unknown>),
   };

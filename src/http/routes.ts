@@ -3,6 +3,7 @@ import type { ClaudeBackend } from "../backends/types.ts";
 import type { PromptService } from "../service/prompt-service.ts";
 import { readJsonBody } from "./json.ts";
 import type { AppEnv } from "./middleware.ts";
+import { buildOpenApiDocument } from "./openapi.ts";
 import { resultBody } from "./responses.ts";
 import { parsePromptRequest } from "./schemas.ts";
 import { DEFAULT_HEARTBEAT_MS, streamPrompt } from "./sse.ts";
@@ -19,6 +20,9 @@ export function registerRoutes(
   { service, backend, heartbeatMs = DEFAULT_HEARTBEAT_MS, streamStallMs }: RouteDeps,
 ): void {
   app.get("/health", (c) => c.json({ status: "ok" }));
+
+  const openApi = buildOpenApiDocument();
+  app.get("/openapi.json", (c) => c.json(openApi));
 
   app.get("/ready", async (c) => {
     const status = await backend.probe();

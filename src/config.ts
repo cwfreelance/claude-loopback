@@ -25,6 +25,8 @@ export interface Config {
   readonly streamStallMs: number;
   readonly corsOrigins: readonly string[];
   readonly logLevel: LogLevel;
+  /** "auto": readable lines on a terminal, JSON when output is redirected. */
+  readonly logFormat: "auto" | "pretty" | "json";
   readonly logPrompts: boolean;
 }
 
@@ -90,7 +92,8 @@ const schema = z
   .object({
     LOOPBACK_TOKEN: z
       .string({ error: "is required (generate one with `pnpm run token`)" })
-      .min(32, "must be at least 32 characters (generate one with `pnpm run token`)")
+      // 43 base64url characters = 256 bits: far beyond guessing, so wrong tokens need no lockout.
+      .min(43, "must be at least 43 characters (generate one with `pnpm run token`)")
       .regex(TOKEN_CHARS, "must use only A-Z a-z 0-9 . _ ~ + / - (and trailing =)")
       .refine(
         (value) => new Set(value).size >= MIN_DISTINCT_TOKEN_CHARS,
@@ -137,6 +140,9 @@ const schema = z
         error: "must be one of fatal, error, warn, info, debug, trace, silent",
       })
       .default("info"),
+    LOOPBACK_LOG_FORMAT: z
+      .enum(["auto", "pretty", "json"], { error: "must be one of auto, pretty, json" })
+      .default("auto"),
     LOOPBACK_LOG_PROMPTS: z
       .enum(["true", "false", "1", "0"], { error: "must be true, false, 1 or 0" })
       .transform((value) => value === "true" || value === "1")
@@ -216,6 +222,7 @@ export function loadConfig(env: Readonly<Record<string, string | undefined>>): C
     streamStallMs: e.LOOPBACK_STREAM_STALL_MS,
     corsOrigins: Object.freeze(e.LOOPBACK_CORS_ORIGINS),
     logLevel: e.LOOPBACK_LOG_LEVEL,
+    logFormat: e.LOOPBACK_LOG_FORMAT,
     logPrompts: e.LOOPBACK_LOG_PROMPTS,
   });
 }

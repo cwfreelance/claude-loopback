@@ -1,6 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import { z } from "zod";
 import { AppError } from "../../errors.ts";
+import { deeperThan } from "../../json-depth.ts";
 import type { Logger } from "../../logger.ts";
 import type { RunEvent, RunResult } from "../types.ts";
 
@@ -102,17 +103,6 @@ const category = (value: unknown) =>
 
 // JSON.stringify throws past a few thousand levels; nothing legitimate comes close to this.
 const MAX_STRUCTURED_DEPTH = 256;
-
-function deeperThan(value: unknown, limit: number): boolean {
-  const stack: Array<[unknown, number]> = [[value, 1]];
-  for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
-    const [node, depth] = item;
-    if (typeof node !== "object" || node === null) continue;
-    if (depth > limit) return true;
-    for (const child of Object.values(node)) stack.push([child, depth + 1]);
-  }
-  return false;
-}
 
 function toRunResult(line: z.infer<typeof resultLine>, model: string | undefined): RunResult {
   return {

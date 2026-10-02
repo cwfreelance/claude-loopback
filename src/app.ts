@@ -29,7 +29,8 @@ export interface AppDeps {
   readonly heartbeatMs?: number;
 }
 
-const PUBLIC_PATHS = new Set(["/health"]);
+// Static, secret-free documents; everything else needs the bearer token.
+const PUBLIC_PATHS = new Set(["/health", "/openapi.json"]);
 
 /**
  * Middleware order matters: request id → Host → Origin → CORS (preflights end here) → auth →

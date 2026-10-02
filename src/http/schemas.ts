@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { AppError } from "../errors.ts";
+import { AppError, ERROR_CODES, type ErrorCode } from "../errors.ts";
+import { deeperThan } from "../json-depth.ts";
 import type { PromptInput } from "../service/prompt-service.ts";
 
 const MAX_PROMPT_CHARS = 200_000;
@@ -8,6 +9,7 @@ const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 // systemPrompt and jsonSchema travel in argv, which Windows caps at ~32K characters.
 const MAX_SYSTEM_PROMPT_CHARS = 16 * 1024;
 const MAX_JSON_SCHEMA_CHARS = 16 * 1024;
+const MAX_JSON_SCHEMA_DEPTH = 64;
 const MAX_TOOLS = 32;
 
 /** Request body for both prompt routes. Unknown fields are rejected. */
@@ -28,6 +30,11 @@ export const promptRequest = z.strictObject({
   effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
   jsonSchema: z
     .record(z.string(), z.unknown())
+    // Checked first, iteratively: JSON.stringify throws RangeError on very deep input.
+    .refine((schema) => !deeperThan(schema, MAX_JSON_SCHEMA_DEPTH), {
+      message: `may nest at most ${MAX_JSON_SCHEMA_DEPTH} levels deep`,
+      abort: true,
+    })
     .refine((schema) => JSON.stringify(schema).length <= MAX_JSON_SCHEMA_CHARS, {
       message: `must serialize to at most ${MAX_JSON_SCHEMA_CHARS} characters`,
     })
@@ -50,3 +57,53 @@ export function parsePromptRequest(body: unknown): PromptInput {
     issue?.code === "unrecognized_keys" ? "unknown field" : (issue?.message ?? "invalid");
   throw new AppError("invalid_request", `${field}: ${rule}`);
 }
+
+// Response shapes. The server builds these bodies itself; the schemas exist for the OpenAPI
+// document and for tests that check real responses against it.
+const usage = z.strictObject({
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheCreationTokens: z.number(),
+});
+
+export const promptResponse = z.strictObject({
+  id: z.string().describe("Request id, also sent as the X-Request-Id header"),
+  text: z.string(),
+  structuredOutput: z.unknown().optional().describe("Present when jsonSchema was given"),
+  model: z.string(),
+  stopReason: z.string().nullable(),
+  durationMs: z.number(),
+  queueMs: z.number().describe("Time spent waiting for a free slot"),
+  usage,
+  costUsd: z.number().describe("The CLI's client-side cost estimate"),
+});
+
+export const readyResponse = z.strictObject({
+  ready: z.boolean(),
+  cli: z.strictObject({
+    loggedIn: z.boolean(),
+    version: z.string().optional(),
+    reason: z.string().optional().describe("Why the CLI is not ready"),
+  }),
+  queue: z.strictObject({ active: z.number().int(), waiting: z.number().int() }),
+});
+
+export const healthResponse = z.strictObject({ status: z.literal("ok") });
+
+export const errorResponse = z.strictObject({
+  error: z.strictObject({
+    code: z.enum(ERROR_CODES as unknown as [ErrorCode, ...ErrorCode[]]),
+    message: z.string(),
+    requestId: z.string(),
+  }),
+});
+
+export const streamStart = z.strictObject({ model: z.string() });
+export const streamDelta = z.strictObject({ text: z.string() });
+export const streamRetry = z.strictObject({
+  attempt: z.number().int(),
+  maxRetries: z.number().int(),
+  delayMs: z.number(),
+  error: z.string().describe("API error category, e.g. overloaded or rate_limit"),
+});

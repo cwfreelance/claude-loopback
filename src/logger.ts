@@ -1,6 +1,9 @@
+import { styleText } from "node:util";
 import { type DestinationStream, destination, type Logger, pino } from "pino";
+import { isColorSupported, prettyFactory } from "pino-pretty";
 import type { LogLevel } from "./config.ts";
 import { AppError } from "./errors.ts";
+import { formatLine } from "./log-format.ts";
 
 export type { Logger };
 
@@ -8,6 +11,10 @@ export interface LoggerOptions {
   readonly level: LogLevel;
   readonly logPrompts: boolean;
   readonly destination?: DestinationStream;
+  /** "json" (default): one JSON object per line. "pretty": one readable line, for a terminal. */
+  readonly format?: "json" | "pretty";
+  /** Pretty format only. Default: on when the terminal supports it (honours NO_COLOR). */
+  readonly colorize?: boolean;
 }
 
 const CREDENTIAL_KEYS = [
@@ -64,9 +71,36 @@ function errorSerializer(logPrompts: boolean) {
   };
 }
 
-/** JSON logger that always redacts credentials and, unless enabled, prompt/output contents. */
+/**
+ * Formats each JSON line pino writes into one readable line, synchronously (no worker thread),
+ * then writes it on. Redaction and serializers have already run by then.
+ */
+function prettyStream(target: DestinationStream, colorize: boolean): DestinationStream {
+  const prettify = prettyFactory({
+    colorize,
+    translateTime: "SYS:HH:MM:ss",
+    ignore: "pid,hostname",
+    hideObject: true,
+    // formatLine colors the parts of the message itself; the time is dimmed.
+    customColors: "message:reset",
+    useOnlyCustomProps: false,
+    customPrettifiers: {
+      time: (time) =>
+        colorize ? styleText("dim", String(time), { validateStream: false }) : String(time),
+    },
+    messageFormat: (log, _messageKey, _levelLabel, { colors }) => formatLine(log, colors),
+  });
+  return { write: (line: string) => target.write(prettify(line)) };
+}
+
+/**
+ * Logger that always redacts credentials and, unless enabled, prompt/output contents. Writes
+ * JSON lines, or readable (optionally colored) lines in the pretty format.
+ */
 export function createLogger(options: LoggerOptions): Logger {
   const keys = options.logPrompts ? CREDENTIAL_KEYS : [...CREDENTIAL_KEYS, ...CONTENT_KEYS];
+  // A terminal gets synchronous writes, so log lines and the startup banner stay in order.
+  const target = options.destination ?? destination({ dest: 1, sync: options.format === "pretty" });
   return pino(
     {
       level: options.level,
@@ -74,6 +108,8 @@ export function createLogger(options: LoggerOptions): Logger {
       redact: { paths: pathsFor(keys), censor: "[redacted]" },
       serializers: { err: errorSerializer(options.logPrompts) },
     },
-    options.destination ?? destination(1),
+    options.format === "pretty"
+      ? prettyStream(target, options.colorize ?? isColorSupported)
+      : target,
   );
 }

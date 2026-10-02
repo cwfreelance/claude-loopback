@@ -34,6 +34,7 @@ function setup(
   const specs: RunSpec[] = [];
   const pids: number[] = [];
   const recording: ProcessRunner = {
+    killAllSync: () => runner.killAllSync(),
     async start(spec) {
       specs.push(spec);
       const run = await runner.start(spec);
@@ -241,6 +242,7 @@ describe("CliBackend.stream when cancelled or broken", () => {
   it("turns a non-AppError from the output stream into cli_failed", async () => {
     const { logger } = makeRunner();
     const broken: ProcessRunner = {
+      killAllSync: () => {},
       async start() {
         return {
           pid: 0,

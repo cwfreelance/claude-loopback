@@ -3,6 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { Clock } from "../clock.ts";
 import { AppError } from "../errors.ts";
 import type { Logger } from "../logger.ts";
+import { killTreeSync as defaultKillTreeSync } from "./kill-tree.ts";
 import type { TempDirs } from "./temp-dir.ts";
 
 export interface RunSpec {
@@ -41,12 +42,19 @@ export interface ProcessRun {
 
 export interface ProcessRunner {
   start(spec: RunSpec): Promise<ProcessRun>;
+  /**
+   * Last resort before a forced exit: kills every active run's whole tree, synchronously. (The
+   * job object only guarantees the direct children die with the server.)
+   */
+  killAllSync(): void;
 }
 
 export interface RunnerDeps {
   readonly tempDirs: TempDirs;
   /** Kills a process tree; rejects if it could not, so the runner can fall back. */
   readonly killTree: (pid: number) => Promise<void>;
+  /** Synchronous variant for killAllSync (default: taskkill /T /F via execFileSync). */
+  readonly killTreeSync?: (pid: number) => void;
   readonly clock: Clock;
   readonly logger: Logger;
   readonly maxStdoutBytes?: number;
@@ -97,6 +105,9 @@ export function createProcessRunner(deps: RunnerDeps): ProcessRunner {
   const maxStdoutBytes = deps.maxStdoutBytes ?? DEFAULT_MAX_STDOUT_BYTES;
   const stderrTailBytes = deps.stderrTailBytes ?? DEFAULT_STDERR_TAIL_BYTES;
   const closeGraceMs = deps.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS;
+  const killTreeSync = deps.killTreeSync ?? defaultKillTreeSync;
+  // Force-kill hooks of the runs still alive, for killAllSync.
+  const active = new Set<() => void>();
 
   async function start(spec: RunSpec): Promise<ProcessRun> {
     const cwd = await tempDirs.create();
@@ -172,6 +183,13 @@ export function createProcessRunner(deps: RunnerDeps): ProcessRunner {
       return killing;
     };
 
+    const forceKill = () => {
+      if (hasExited) return;
+      killReason ??= "shutdown";
+      killTreeSync(pid);
+    };
+    active.add(forceKill);
+
     const cutOff = (why: string) => {
       logger.warn({ pid, why }, "cutting off stdout after exit");
       stdoutFailure ??= new Error(`stdout cut off: ${why}`);
@@ -234,6 +252,7 @@ export function createProcessRunner(deps: RunnerDeps): ProcessRunner {
         if (state !== "active") cutOff(state === "idle" ? "never read" : "abandoned");
       }
       await closed;
+      active.delete(forceKill);
       clock.clearTimeout(timer);
       spec.signal?.removeEventListener("abort", onAbort);
       await killing;
@@ -247,5 +266,9 @@ export function createProcessRunner(deps: RunnerDeps): ProcessRunner {
     return { pid, stdout: stdout(), exit, kill };
   }
 
-  return { start };
+  function killAllSync(): void {
+    for (const forceKill of active) forceKill();
+  }
+
+  return { start, killAllSync };
 }

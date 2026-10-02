@@ -229,6 +229,23 @@ describe("rate limit", () => {
   });
 });
 
+describe("wrong tokens", () => {
+  // Tokens are at least 256 bits, so guessing is hopeless; a lockout would only let any local
+  // process lock the owner out.
+  it("never lock the owner out, however many are sent", async () => {
+    const { app } = buildApp({ LOOPBACK_RATE_LIMIT_PER_MIN: "1000" });
+    const wrong = `Bearer ${"x".repeat(TOKEN.length)}`;
+    for (let i = 0; i < 50; i++) {
+      const response = await send(app, "/v1/nope", {
+        token: null,
+        headers: { authorization: wrong },
+      });
+      expect(response.status).toBe(401);
+    }
+    expect((await send(app, "/v1/nope")).status).toBe(404);
+  });
+});
+
 describe("request body guards", () => {
   function withProbe(env: Record<string, string> = {}) {
     const built = buildApp(env);

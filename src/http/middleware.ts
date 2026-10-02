@@ -78,7 +78,11 @@ export function originCheck(allowed: readonly string[]): Middleware {
 
 const BEARER = /^Bearer ([A-Za-z0-9._~+/-]+=*)$/i;
 
-/** Constant-time bearer check: compares SHA-256 digests, so lengths never leak. */
+/**
+ * Constant-time bearer check: compares SHA-256 digests, so lengths never leak. Wrong tokens are
+ * not rate-limited: tokens are at least 256 bits, so guessing is hopeless, and a lockout would
+ * let any local process lock the owner out.
+ */
 export function bearerAuth(tokenDigest: Buffer): Middleware {
   return async (c, next) => {
     const match = BEARER.exec(c.req.header("authorization") ?? "");

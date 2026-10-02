@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ConfigError, loadConfig, scrubSecrets } from "../../src/config.ts";
 
-const TOKEN = "kV3x9-Qe7Lp2Rw8Zt4Yb6Nc1Md5Hf0Ja2S";
+const TOKEN = "5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE";
 const TOKEN_DIGEST = createHash("sha256").update(TOKEN).digest();
 const base = { LOOPBACK_TOKEN: TOKEN };
 
@@ -36,6 +36,7 @@ describe("loadConfig", () => {
       streamStallMs: 30_000,
       corsOrigins: [],
       logLevel: "info",
+      logFormat: "auto",
       logPrompts: false,
     });
   });
@@ -53,6 +54,7 @@ describe("loadConfig", () => {
       LOOPBACK_CORS_ORIGINS: "http://127.0.0.1:3000",
       LOOPBACK_LOG_LEVEL: "debug",
       LOOPBACK_LOG_PROMPTS: "true",
+      LOOPBACK_LOG_FORMAT: "json",
       LOOPBACK_CLAUDE_PATH: "C:\\Tools\\Claude\\claude.exe",
     });
     expect(config).toMatchObject({
@@ -67,6 +69,7 @@ describe("loadConfig", () => {
       corsOrigins: ["http://127.0.0.1:3000"],
       logLevel: "debug",
       logPrompts: true,
+      logFormat: "json",
       claudePath: "C:\\Tools\\Claude\\claude.exe",
     });
   });
@@ -148,7 +151,11 @@ describe("loadConfig", () => {
 
   it.each([
     ["missing token", {}, "LOOPBACK_TOKEN"],
-    ["short token", { LOOPBACK_TOKEN: "a".repeat(31) }, "LOOPBACK_TOKEN"],
+    [
+      "short token (under 256 bits)",
+      { LOOPBACK_TOKEN: "5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3U" },
+      "LOOPBACK_TOKEN",
+    ],
     [
       "token with whitespace",
       { LOOPBACK_TOKEN: `${"a".repeat(20)} ${"b".repeat(20)}` },
@@ -156,15 +163,15 @@ describe("loadConfig", () => {
     ],
     [
       "non-ASCII token",
-      { LOOPBACK_TOKEN: `${"kV3x9Qe7Lp2Rw8Zt4Yb6Nc1Md5Hf0Ja2S"}é` },
+      { LOOPBACK_TOKEN: `${"5kHc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UEx"}é` },
       "LOOPBACK_TOKEN",
     ],
     [
       "token with quote",
-      { LOOPBACK_TOKEN: `${"kV3x9Qe7Lp2Rw8Zt4Yb6Nc1Md5Hf0Ja2S"}"` },
+      { LOOPBACK_TOKEN: `${"5kHc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UEx"}"` },
       "LOOPBACK_TOKEN",
     ],
-    ["low-entropy token", { LOOPBACK_TOKEN: "ab".repeat(20) }, "LOOPBACK_TOKEN"],
+    ["low-entropy token", { LOOPBACK_TOKEN: "ab".repeat(30) }, "LOOPBACK_TOKEN"],
     ["wildcard host", { ...base, LOOPBACK_HOST: "0.0.0.0" }, "LOOPBACK_HOST"],
     ["LAN host", { ...base, LOOPBACK_HOST: "192.168.1.5" }, "LOOPBACK_HOST"],
     ["port out of range", { ...base, LOOPBACK_PORT: "70000" }, "LOOPBACK_PORT"],
@@ -209,6 +216,7 @@ describe("loadConfig", () => {
       "LOOPBACK_CLAUDE_PATH",
     ],
     ["unknown log level", { ...base, LOOPBACK_LOG_LEVEL: "loud" }, "LOOPBACK_LOG_LEVEL"],
+    ["unknown log format", { ...base, LOOPBACK_LOG_FORMAT: "fancy" }, "LOOPBACK_LOG_FORMAT"],
     ["non-boolean flag", { ...base, LOOPBACK_LOG_PROMPTS: "maybe" }, "LOOPBACK_LOG_PROMPTS"],
     [
       "body limit above stdin cap",

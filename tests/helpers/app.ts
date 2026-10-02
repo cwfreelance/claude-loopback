@@ -7,7 +7,7 @@ import { createPromptService } from "../../src/service/prompt-service.ts";
 import { createQueue } from "../../src/service/queue.ts";
 import { FakeBackend } from "./backend.ts";
 
-export const TOKEN = "kV3x9-Qe7Lp2Rw8Zt4Yb6Nc1Md5Hf0Ja2S";
+export const TOKEN = "5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE";
 
 interface FakeTimer {
   at: number;

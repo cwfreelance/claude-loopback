@@ -137,6 +137,37 @@ describe("POST /v1/prompt", () => {
     expect(response.status).toBe(400);
   });
 
+  describe("jsonSchema nesting", () => {
+    const nested = (depth: number) => `${'{"a":'.repeat(depth - 1)}{}${"}".repeat(depth - 1)}`;
+    const body = (depth: number) => `{"prompt":"p","jsonSchema":${nested(depth)}}`;
+
+    it("accepts a schema 64 objects deep", async () => {
+      const { app, backend } = buildApp();
+      const response = await send(app, "/v1/prompt", post(body(64), true));
+      expect(response.status).toBe(200);
+      expect(backend.requests).toHaveLength(1);
+    });
+
+    it("rejects one level deeper with 400 naming the field", async () => {
+      const { app, backend } = buildApp();
+      const response = await send(app, "/v1/prompt", post(body(65), true));
+      expect(response.status).toBe(400);
+      const error = await errorBody(response);
+      expect(error.code).toBe("invalid_request");
+      expect(error.message).toContain("jsonSchema");
+      expect(backend.requests).toHaveLength(0);
+    });
+
+    it("rejects pathological nesting with 400, not a 500 from JSON.stringify", async () => {
+      const { app, backend, logs } = buildApp();
+      const response = await send(app, "/v1/prompt", post(body(100_000), true));
+      expect(response.status).toBe(400);
+      expect((await errorBody(response)).code).toBe("invalid_request");
+      expect(backend.requests).toHaveLength(0);
+      expect(logs()).not.toContain("unhandled error");
+    });
+  });
+
   it.each([
     ["a tool outside the allowlist", { prompt: "p", tools: ["Bash"] }, 400, "tool_not_allowed"],
     ["a model outside the allowlist", { prompt: "p", model: "gpt" }, 400, "model_not_allowed"],

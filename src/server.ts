@@ -9,8 +9,9 @@ import { createApp } from "./app.ts";
 import { createCliBackend } from "./backends/cli/cli-backend.ts";
 import { buildChildEnv } from "./backends/cli/env.ts";
 import { isSupportedVersion, resolveClaudePath } from "./backends/cli/probe.ts";
+import type { BackendStatus } from "./backends/types.ts";
 import { systemClock } from "./clock.ts";
-import { loadConfig } from "./config.ts";
+import { type Config, loadConfig } from "./config.ts";
 import { createLogger } from "./logger.ts";
 import { acquireInstanceLock } from "./process/instance-lock.ts";
 import { killTree } from "./process/kill-tree.ts";
@@ -21,8 +22,11 @@ import { createQueue } from "./service/queue.ts";
 import { StartupError } from "./startup-error.ts";
 
 export interface StartOptions {
-  /** Where LOOPBACK_* settings come from (a snapshot of process.env in production). */
-  readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * Where LOOPBACK_* settings come from (a snapshot of process.env in production).
+   * LOOPBACK_TOKEN is deleted from it once read: only its digest is kept.
+   */
+  readonly env: Record<string, string | undefined>;
   /** Tests only: run this command (e.g. node + the fake CLI) instead of resolving claude.exe. */
   readonly claude?: {
     readonly command: string;
@@ -42,6 +46,13 @@ export interface RunningServer {
   /** Where per-request work dirs are created. */
   readonly workRoot: string;
   readonly service: PromptService;
+  readonly config: Config;
+  /** The Claude CLI as probed at startup. */
+  readonly cli: BackendStatus;
+  /** Whether logs are written in the pretty format (so a startup banner fits in). */
+  readonly pretty: boolean;
+  /** Last resort before a forced exit: kills every active run's process tree, synchronously. */
+  forceKill(): void;
   /** Graceful stop: see drain; then closes all connections and releases the instance lock. */
   close(options?: { graceMs?: number }): Promise<void>;
 }
@@ -105,9 +116,17 @@ async function listen(
 export async function startServer(options: StartOptions): Promise<RunningServer> {
   const { env } = options;
   const config = loadConfig(env);
+  delete env.LOOPBACK_TOKEN;
+  // "auto" is pretty only for a terminal; a given destination (tests) or a redirect gets JSON.
+  const pretty =
+    config.logFormat === "pretty" ||
+    (config.logFormat === "auto" &&
+      options.logDestination === undefined &&
+      process.stdout.isTTY === true);
   const logger = createLogger({
     level: config.logLevel,
     logPrompts: config.logPrompts,
+    format: pretty ? "pretty" : "json",
     ...(options.logDestination ? { destination: options.logDestination } : {}),
   });
   const clock = systemClock;
@@ -172,7 +191,18 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
       return closing;
     };
 
-    return { host: config.host, port, workRoot, service, close };
+    const forceKill = () => baseRunner.killAllSync();
+    return {
+      host: config.host,
+      port,
+      workRoot,
+      service,
+      config,
+      cli: status,
+      pretty,
+      close,
+      forceKill,
+    };
   } catch (error) {
     await lock.release();
     throw error;

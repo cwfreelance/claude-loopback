@@ -32,6 +32,25 @@ describe("server startup", () => {
       port: server.port,
     });
   }, 20_000);
+
+  it("reports what the startup banner needs: CLI status and settings", async () => {
+    const server = await startLive({ config: { LOOPBACK_MAX_CONCURRENCY: "3" } });
+    live.push(server);
+    expect(server.cli).toMatchObject({ ready: true, loggedIn: true });
+    expect(server.cli.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(server.config).toMatchObject({ maxConcurrency: 3, defaultModel: "sonnet" });
+    expect(server.pretty).toBe(false); // a log destination was given: JSON
+  }, 20_000);
+
+  it("drops the plaintext token from the settings it was given once it is loaded", async () => {
+    const server = await startLive();
+    live.push(server);
+    expect(server.env).not.toHaveProperty("LOOPBACK_TOKEN");
+    const ready = await fetch(`${server.url}/ready`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(ready.status).toBe(200);
+  }, 20_000);
 });
 
 describe("entry point (src/index.ts)", () => {

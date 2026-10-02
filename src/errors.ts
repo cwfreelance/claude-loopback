@@ -27,6 +27,8 @@ const STATUS = {
 } as const;
 
 export type ErrorCode = keyof typeof STATUS;
+/** Every code a client can receive (used by the OpenAPI document). */
+export const ERROR_CODES = Object.freeze(Object.keys(STATUS) as ErrorCode[]);
 export type ErrorStatus = (typeof STATUS)[ErrorCode];
 
 export interface AppErrorOptions {
