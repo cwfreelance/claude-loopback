@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PORT } from "../config.ts";
 import { ERROR_CODES, type ErrorCode, errorStatus } from "../errors.ts";
 import {
   errorResponse,
@@ -54,7 +55,7 @@ export function buildOpenApiDocument(): Json {
         "mode (claude -p). Bound to 127.0.0.1; every route except /health and /openapi.json " +
         "needs the bearer token from LOOPBACK_TOKEN.",
     },
-    servers: [{ url: "http://127.0.0.1:7337" }],
+    servers: [{ url: `http://127.0.0.1:${DEFAULT_PORT}` }],
     security: [{ bearer: [] }],
     paths: {
       "/health": {
@@ -66,7 +67,7 @@ export function buildOpenApiDocument(): Json {
       },
       "/openapi.json": {
         get: {
-          summary: "This document",
+          summary: "This API as an OpenAPI 3.1 document",
           security: [],
           responses: {
             200: {

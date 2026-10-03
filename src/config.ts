@@ -40,6 +40,8 @@ export class ConfigError extends Error {
   }
 }
 
+export const DEFAULT_PORT = 7337;
+
 // The CLI caps piped stdin at 10 MB; keep request bodies well below it.
 const MAX_BODY_BYTES_CAP = 8 * 1024 * 1024;
 // RFC 6750 token68 charset: ASCII only, so header bytes and .env text always agree.
@@ -104,7 +106,7 @@ const schema = z
         error: "must be 127.0.0.1; loopback is the only supported bind address",
       })
       .default("127.0.0.1"),
-    LOOPBACK_PORT: int(0, 65_535, 7337),
+    LOOPBACK_PORT: int(0, 65_535, DEFAULT_PORT),
     LOOPBACK_CLAUDE_PATH: z
       .string()
       .refine(

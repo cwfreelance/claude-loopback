@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.ts";
 import { ensureTokenFile, newToken } from "../../src/token-file.ts";
-import { aclSids, grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from "../helpers/acl.ts";
+import { grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from "../helpers/acl.ts";
 import { scratchRoot } from "../helpers/process.ts";
 
 const win32 = process.platform === "win32";

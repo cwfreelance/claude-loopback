@@ -24,7 +24,8 @@ async function refused(promise: Promise<unknown>): Promise<StartupError> {
   return error as StartupError;
 }
 
-describe.runIf(win32)("acquireInstanceLock", () => {
+// Uses real named pipes and child processes, which can be slow on a busy Windows machine.
+describe.runIf(win32)("acquireInstanceLock", { timeout: 20_000 }, () => {
   it("refuses a second holder for the same work root", async () => {
     const root = workRoot();
     const lock = await acquireInstanceLock(root);

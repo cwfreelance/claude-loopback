@@ -130,6 +130,44 @@ describe.runIf(win32)("claude-loopback (the npm command)", () => {
     expect(tokenIn(configFile)).toBe(token);
   }, 30_000);
 
+  it("`docs` prints the API reference without creating settings", () => {
+    const { configFile, env } = profile();
+    const result = cli(["docs"], env);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("POST  /v1/prompt ");
+    expect(result.stdout).toContain("http://127.0.0.1:7337/v1/prompt");
+    expect(result.stdout).toContain("$env:LOOPBACK_TOKEN = (claude-loopback token)");
+    expect(result.stdout).toContain(configFile);
+    // Piped, so no colors.
+    expect(result.stdout).not.toContain("\u001b[");
+    expect(existsSync(configFile)).toBe(false);
+  });
+
+  it("`docs` uses the port from the settings file, and never prints the token", () => {
+    const { configFile, env } = profile();
+    cli(["token"], env);
+    const token = tokenIn(configFile) ?? "";
+    writeFileSync(configFile, `LOOPBACK_TOKEN=${token}\nLOOPBACK_PORT=8123\n`);
+    const fromFile = cli(["docs"], env);
+    expect(fromFile.status).toBe(0);
+    expect(fromFile.stdout).toContain("http://127.0.0.1:8123/v1/prompt");
+    expect(fromFile.stdout + fromFile.stderr).not.toContain(token);
+
+    const overridden = cli(["docs"], { ...env, LOOPBACK_PORT: "9001" });
+    expect(overridden.stdout).toContain("http://127.0.0.1:9001/v1/prompt");
+  }, 30_000);
+
+  it("`docs` falls back to the default port when the settings can't be read", () => {
+    const { configFile, env } = profile();
+    // A directory where the file should be: it exists but can't be read as a file.
+    mkdirSync(configFile, { recursive: true });
+    const result = cli(["docs"], env);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("http://127.0.0.1:7337/v1/prompt");
+    expect(result.stderr).toContain(configFile);
+    expect(result.stderr).not.toMatch(/\n\s+at /);
+  });
+
   it.each([["--version"], ["-v"]])("%s prints the package version", (flag) => {
     const result = cli([flag], profile().env);
     expect(result.status).toBe(0);
@@ -139,7 +177,7 @@ describe.runIf(win32)("claude-loopback (the npm command)", () => {
   it.each([["--help"], ["-h"], ["help"]])("%s lists the commands", (flag) => {
     const result = cli([flag], profile().env);
     expect(result.status).toBe(0);
-    for (const command of ["start", "setup", "token", "config"]) {
+    for (const command of ["start", "setup", "token", "config", "docs"]) {
       expect(result.stdout).toContain(command);
     }
   });

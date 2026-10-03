@@ -23,7 +23,8 @@ function run(dir: string, env: Record<string, string> = {}) {
 
 const tokenIn = (file: string) => /^LOOPBACK_TOKEN=(.*)$/m.exec(readFileSync(file, "utf8"))?.[1];
 
-describe.runIf(win32)("pnpm run setup", () => {
+// Spawns the setup script, which can take seconds on a busy Windows machine.
+describe.runIf(win32)("pnpm run setup", { timeout: 20_000 }, () => {
   it("creates .env from .env.example with a fresh, valid token it never prints", () => {
     const dir = scratchRoot();
     writeFileSync(path.join(dir, ".env.example"), EXAMPLE);

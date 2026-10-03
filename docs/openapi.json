@@ -36,7 +36,7 @@
     },
     "/openapi.json": {
       "get": {
-        "summary": "This document",
+        "summary": "This API as an OpenAPI 3.1 document",
         "security": [],
         "responses": {
           "200": {
@@ -338,9 +338,11 @@
           "prompt": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200000
+            "maxLength": 200000,
+            "description": "Up to 200 000 characters"
           },
           "attachments": {
+            "description": "Up to 20 text files { name, content }, 2 MB total, put before the prompt",
             "maxItems": 20,
             "type": "array",
             "items": {
@@ -363,15 +365,18 @@
             }
           },
           "model": {
+            "description": "One of LOOPBACK_ALLOWED_MODELS; default LOOPBACK_DEFAULT_MODEL",
             "type": "string",
             "minLength": 1,
             "maxLength": 100
           },
           "systemPrompt": {
+            "description": "Added to Claude Code's system prompt, up to 16 KB",
             "type": "string",
             "maxLength": 16384
           },
           "effort": {
+            "description": "How hard Claude thinks; low is fastest",
             "type": "string",
             "enum": [
               "low",
@@ -382,6 +387,7 @@
             ]
           },
           "jsonSchema": {
+            "description": "JSON Schema for the answer, which then arrives in structuredOutput",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -389,6 +395,7 @@
             "additionalProperties": {}
           },
           "tools": {
+            "description": "Tools to enable, only from LOOPBACK_ALLOWED_TOOLS (none by default)",
             "maxItems": 32,
             "type": "array",
             "items": {
@@ -398,6 +405,7 @@
             }
           },
           "timeoutMs": {
+            "description": "1000 up to LOOPBACK_MAX_TIMEOUT_MS; default LOOPBACK_DEFAULT_TIMEOUT_MS",
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
@@ -416,22 +424,26 @@
             "description": "Request id, also sent as the X-Request-Id header"
           },
           "text": {
-            "type": "string"
+            "type": "string",
+            "description": "The answer"
           },
           "structuredOutput": {
             "description": "Present when jsonSchema was given"
           },
           "model": {
-            "type": "string"
+            "type": "string",
+            "description": "The model that ran"
           },
           "stopReason": {
+            "description": "Why the run stopped, e.g. end_turn",
             "type": [
               "string",
               "null"
             ]
           },
           "durationMs": {
-            "type": "number"
+            "type": "number",
+            "description": "How long the run took"
           },
           "queueMs": {
             "type": "number",
@@ -459,7 +471,8 @@
               "cacheReadTokens",
               "cacheCreationTokens"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "description": "Token counts: inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens"
           },
           "costUsd": {
             "type": "number",

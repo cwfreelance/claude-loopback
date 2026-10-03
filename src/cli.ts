@@ -4,11 +4,15 @@
 // some other project can't pick up that project's .env.
 import { existsSync, readFileSync } from "node:fs";
 import { styleText } from "node:util";
+import type { Style } from "./banner.ts";
 import { scrubSecrets } from "./config.ts";
+import { docsUrl, formatDocs } from "./docs.ts";
 import { runServer } from "./run.ts";
 import { defaultSettingsFile, readSettings, runSetup } from "./setup.ts";
 import { ensureTokenFile } from "./token-file.ts";
 import { packageVersion } from "./version.ts";
+
+type Format = Parameters<typeof styleText>[0];
 
 const MIN_NODE_MAJOR = 24;
 
@@ -28,6 +32,7 @@ Commands:
   setup    Create your settings if needed and check this machine (Node, Claude Code, login)
   token    Print your token, e.g. $env:LOOPBACK_TOKEN = (claude-loopback token)
   config   Print where your settings file is (edit it to change settings)
+  docs     Print a quick API reference: routes, fields, errors and examples
 
 Options:
   -v, --version   Print the version
@@ -99,6 +104,23 @@ switch (command) {
   case "config":
     console.log(file);
     break;
+  case "docs": {
+    // Reads the settings only for the port; never creates them, never prints the token.
+    let settings: Record<string, string | undefined> = process.env;
+    try {
+      if (existsSync(file)) settings = readSettings(file, process.env);
+    } catch (error) {
+      console.error(
+        `claude-loopback: warning: could not read ${file} (${(error as NodeJS.ErrnoException).code ?? "error"}); showing the default port`,
+      );
+    }
+    const style: Style = (format, text) =>
+      styleText(format as Format, text, { stream: process.stdout });
+    console.log(
+      formatDocs({ version: packageVersion(), url: docsUrl(settings), settingsFile: file }, style),
+    );
+    break;
+  }
   case "-v":
   case "--version":
     console.log(packageVersion());

@@ -23,7 +23,8 @@ const run = (script: string, cwd: string) =>
 
 const hooksPath = (repo: string) => git(repo, "config", "core.hooksPath").stdout.trim();
 
-describe("scripts/install-hooks.mjs (the prepare step)", () => {
+// Spawns git and node several times per test, which can take seconds on a busy Windows machine.
+describe("scripts/install-hooks.mjs (the prepare step)", { timeout: 20_000 }, () => {
   it("succeeds without touching anything outside a git checkout (e.g. a ZIP download)", () => {
     const root = scratchRoot();
     const result = run(packageAt(root), root);

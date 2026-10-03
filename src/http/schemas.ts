@@ -14,7 +14,7 @@ const MAX_TOOLS = 32;
 
 /** Request body for both prompt routes. Unknown fields are rejected. */
 export const promptRequest = z.strictObject({
-  prompt: z.string().min(1).max(MAX_PROMPT_CHARS),
+  prompt: z.string().min(1).max(MAX_PROMPT_CHARS).describe("Up to 200 000 characters"),
   attachments: z
     .array(z.strictObject({ name: z.string().min(1).max(200), content: z.string() }))
     .max(MAX_ATTACHMENTS)
@@ -24,10 +24,23 @@ export const promptRequest = z.strictObject({
         MAX_ATTACHMENT_BYTES,
       { message: `attachments may total at most ${MAX_ATTACHMENT_BYTES} bytes` },
     )
-    .optional(),
-  model: z.string().min(1).max(100).optional(),
-  systemPrompt: z.string().max(MAX_SYSTEM_PROMPT_CHARS).optional(),
-  effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+    .optional()
+    .describe("Up to 20 text files { name, content }, 2 MB total, put before the prompt"),
+  model: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("One of LOOPBACK_ALLOWED_MODELS; default LOOPBACK_DEFAULT_MODEL"),
+  systemPrompt: z
+    .string()
+    .max(MAX_SYSTEM_PROMPT_CHARS)
+    .optional()
+    .describe("Added to Claude Code's system prompt, up to 16 KB"),
+  effort: z
+    .enum(["low", "medium", "high", "xhigh", "max"])
+    .optional()
+    .describe("How hard Claude thinks; low is fastest"),
   jsonSchema: z
     .record(z.string(), z.unknown())
     // Checked first, iteratively: JSON.stringify throws RangeError on very deep input.
@@ -38,9 +51,18 @@ export const promptRequest = z.strictObject({
     .refine((schema) => JSON.stringify(schema).length <= MAX_JSON_SCHEMA_CHARS, {
       message: `must serialize to at most ${MAX_JSON_SCHEMA_CHARS} characters`,
     })
-    .optional(),
-  tools: z.array(z.string().min(1).max(64)).max(MAX_TOOLS).optional(),
-  timeoutMs: z.number().int().optional(),
+    .optional()
+    .describe("JSON Schema for the answer, which then arrives in structuredOutput"),
+  tools: z
+    .array(z.string().min(1).max(64))
+    .max(MAX_TOOLS)
+    .optional()
+    .describe("Tools to enable, only from LOOPBACK_ALLOWED_TOOLS (none by default)"),
+  timeoutMs: z
+    .number()
+    .int()
+    .optional()
+    .describe("1000 up to LOOPBACK_MAX_TIMEOUT_MS; default LOOPBACK_DEFAULT_TIMEOUT_MS"),
 });
 
 /**
@@ -60,20 +82,22 @@ export function parsePromptRequest(body: unknown): PromptInput {
 
 // Response shapes. The server builds these bodies itself; the schemas exist for the OpenAPI
 // document and for tests that check real responses against it.
-const usage = z.strictObject({
-  inputTokens: z.number(),
-  outputTokens: z.number(),
-  cacheReadTokens: z.number(),
-  cacheCreationTokens: z.number(),
-});
+const usage = z
+  .strictObject({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    cacheReadTokens: z.number(),
+    cacheCreationTokens: z.number(),
+  })
+  .describe("Token counts: inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens");
 
 export const promptResponse = z.strictObject({
   id: z.string().describe("Request id, also sent as the X-Request-Id header"),
-  text: z.string(),
+  text: z.string().describe("The answer"),
   structuredOutput: z.unknown().optional().describe("Present when jsonSchema was given"),
-  model: z.string(),
-  stopReason: z.string().nullable(),
-  durationMs: z.number(),
+  model: z.string().describe("The model that ran"),
+  stopReason: z.string().nullable().describe("Why the run stopped, e.g. end_turn"),
+  durationMs: z.number().describe("How long the run took"),
   queueMs: z.number().describe("Time spent waiting for a free slot"),
   usage,
   costUsd: z.number().describe("The CLI's client-side cost estimate"),

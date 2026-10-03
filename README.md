@@ -1,5 +1,9 @@
 # claude-loopback
 
+[![npm](https://img.shields.io/npm/v/claude-loopback)](https://www.npmjs.com/package/claude-loopback)
+[![CI](https://github.com/ssaarthakk/claude-loopback/actions/workflows/ci.yml/badge.svg)](https://github.com/ssaarthakk/claude-loopback/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/claude-loopback)](LICENSE)
+
 Call **Claude Code** from your own scripts over plain HTTP. claude-loopback is a small local
 server: send it a prompt, it runs the prompt through your logged-in Claude Code CLI in headless
 mode (`claude -p`), and returns the answer as JSON or streams it as server-sent events.
@@ -64,6 +68,7 @@ use it.
 | `claude-loopback setup` | Create your settings if needed and check Node, Claude Code and its login |
 | `claude-loopback token` | Print your token, for your scripts |
 | `claude-loopback config` | Print where your settings file is |
+| `claude-loopback docs` | Print a quick API reference: routes, fields, errors and examples |
 | `claude-loopback --version` | Print the version |
 
 ## Check it's working
@@ -106,7 +111,8 @@ Send the token as `Authorization: Bearer <token>`, and request bodies as
 
 The complete, always-current description is [`docs/openapi.json`](docs/openapi.json). It is
 generated from the same schemas the server validates requests with, and it is also served at
-`GET /openapi.json`. To browse it:
+`GET /openapi.json`. For a quick reference in the terminal, run `claude-loopback docs`. To
+browse the full description:
 
 - **VS Code:** install an OpenAPI/Swagger viewer extension, open `docs/openapi.json`, and use its
   preview.
