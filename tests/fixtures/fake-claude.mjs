@@ -106,12 +106,24 @@ switch (scenario) {
   case "hang":
     hang();
     break;
+  case "exit-on-sigterm":
+    // Exits cleanly when asked; says when it is listening, so a signal can't arrive too early.
+    process.on("SIGTERM", () => process.exit(0));
+    emit({ type: "ready" });
+    hang();
+    break;
+  case "ignore-sigterm":
+    process.on("SIGTERM", () => {});
+    emit({ type: "ready" });
+    hang();
+    break;
   case "grandchild": {
-    // Detached, so it is outside this process's job object: only a real tree kill (/T)
-    // takes it down, not the death of its parent.
+    // On Windows, detached puts it outside this process's job object: only a real tree kill
+    // (/T) takes it down, not the death of its parent. Elsewhere it stays in this process's
+    // group (detached would be setsid, which escapes the group kill; see kill-tree.ts).
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
       stdio: "ignore",
-      detached: true,
+      detached: process.platform === "win32",
       windowsHide: true,
     });
     emit({ type: "grandchild", pid: child.pid });
