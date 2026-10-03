@@ -106,7 +106,7 @@ describe("process runner", () => {
     T,
   );
 
-  it.runIf(win32)(
+  it(
     "kills the process and its detached grandchildren when the signal aborts",
     async () => {
       const { runner } = makeRunner();
@@ -165,7 +165,7 @@ describe("process runner", () => {
     T,
   );
 
-  it.runIf(win32)(
+  it(
     "kills the process when the consumer abandons stdout",
     async () => {
       const { runner } = makeRunner();
@@ -266,7 +266,7 @@ describe("process runner", () => {
     T,
   );
 
-  it.runIf(win32)(
+  it(
     "kills every active run's whole tree synchronously, for a forced exit",
     async () => {
       const { runner } = makeRunner();

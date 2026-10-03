@@ -79,6 +79,10 @@ async function spawnChild(spec: RunSpec, cwd: string): Promise<ChildProcessWitho
     shell: false,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
+    // POSIX: its own process group, so killTree can take the whole tree down and a Ctrl+C in
+    // the server's terminal doesn't reach it. Never on Windows: there, detached would take the
+    // child out of the job object that ends it with the server.
+    detached: process.platform !== "win32",
   });
   await new Promise<void>((resolve, reject) => {
     child.once("spawn", resolve);

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,8 +11,27 @@ import { StartupError } from "../../src/startup-error.ts";
 import { scratchRoot, waitForDeath } from "../helpers/process.ts";
 
 const win32 = process.platform === "win32";
+const darwin = process.platform === "darwin";
+/** Windows and Linux lock a machine-wide name (a pipe, an abstract socket); macOS locks a file. */
+const named = !darwin;
 
 const workRoot = () => path.join(scratchRoot(), "work");
+/** On macOS the lock is a file beside the work root, in its own private directory. */
+const lockDir = (root: string) => `${path.resolve(root)}.lock`;
+const lockFileOf = (root: string) => path.join(lockDir(root), "lock");
+
+const hashOf = (key: string) => createHash("sha256").update(key).digest("hex").slice(0, 32);
+/** The lock name for a hash: a named pipe on Windows, an abstract socket on Linux. */
+const nameFor = (hash: string) =>
+  win32 ? `\\\\.\\pipe\\loopback-${hash}` : `\0claude-loopback-${hash}`;
+/** The work root's part of the name's key (Windows paths are case-insensitive, so lower-cased). */
+const keyOf = (root: string) => (win32 ? path.resolve(root).toLowerCase() : path.resolve(root));
+/**
+ * Where the lock for `root` listens, computed from first principles: the pipe name hashes the
+ * path and the salt, the abstract name the salt alone.
+ */
+const lockName = (root: string, salt: string) =>
+  nameFor(hashOf(win32 ? `${keyOf(root)}|${salt}` : salt));
 const HOLDER = fileURLToPath(new URL("../fixtures/lock-holder.ts", import.meta.url));
 
 async function refused(promise: Promise<unknown>): Promise<StartupError> {
@@ -24,8 +43,18 @@ async function refused(promise: Promise<unknown>): Promise<StartupError> {
   return error as StartupError;
 }
 
-// Uses real named pipes and child processes, which can be slow on a busy Windows machine.
-describe.runIf(win32)("acquireInstanceLock", { timeout: 20_000 }, () => {
+/** Holds the lock for `root` in another process until killed. */
+async function holderOf(root: string) {
+  const holder = spawn(process.execPath, [HOLDER, root], {
+    stdio: ["ignore", "pipe", "inherit"],
+    windowsHide: true,
+  });
+  await once(holder.stdout as NodeJS.ReadableStream, "data");
+  return holder;
+}
+
+// Uses real pipes, sockets and child processes, which can be slow on a busy machine.
+describe("acquireInstanceLock", { timeout: 20_000 }, () => {
   it("refuses a second holder for the same work root", async () => {
     const root = workRoot();
     const lock = await acquireInstanceLock(root);
@@ -42,15 +71,67 @@ describe.runIf(win32)("acquireInstanceLock", { timeout: 20_000 }, () => {
     await (await acquireInstanceLock(root)).release();
   });
 
-  it("treats paths that differ only in case or form as the same work root", async () => {
+  it.runIf(win32)(
+    "treats paths that differ only in case or form as the same work root",
+    async () => {
+      const root = workRoot();
+      const lock = await acquireInstanceLock(root);
+      try {
+        await refused(acquireInstanceLock(root.toUpperCase()));
+        await refused(acquireInstanceLock(path.join(root, "..", path.basename(root))));
+      } finally {
+        await lock.release();
+      }
+    },
+  );
+
+  it.runIf(!win32)("treats paths that differ only in form as the same work root", async () => {
     const root = workRoot();
     const lock = await acquireInstanceLock(root);
     try {
-      await refused(acquireInstanceLock(root.toUpperCase()));
       await refused(acquireInstanceLock(path.join(root, "..", path.basename(root))));
     } finally {
       await lock.release();
     }
+  });
+
+  it.runIf(!win32)(
+    "treats case aliases as the same work root where the filesystem does",
+    async () => {
+      const root = workRoot();
+      mkdirSync(root);
+      const alias = path.join(path.dirname(root), path.basename(root).toUpperCase());
+      const lock = await acquireInstanceLock(root);
+      try {
+        // On a case-folding filesystem (macOS) the alias names the same directory; elsewhere it
+        // is a different work root.
+        if (existsSync(alias)) await refused(acquireInstanceLock(alias));
+        else await (await acquireInstanceLock(alias)).release();
+      } finally {
+        await lock.release();
+      }
+    },
+  );
+
+  it.runIf(!win32)("treats a symlink to the work root as the same work root", async () => {
+    const root = workRoot();
+    mkdirSync(root);
+    const alias = path.join(scratchRoot(), "alias");
+    symlinkSync(root, alias, "dir");
+    const lock = await acquireInstanceLock(alias);
+    try {
+      await refused(acquireInstanceLock(root));
+    } finally {
+      await lock.release();
+    }
+  });
+
+  it.runIf(!win32)("refuses a work root that is a symlink to a missing path", async () => {
+    // Until the target exists the alias would get a lock of its own, and share the work dir with
+    // the target's lock holder once it does.
+    const alias = path.join(scratchRoot(), "alias");
+    symlinkSync(path.join(scratchRoot(), "missing"), alias, "dir");
+    expect((await refused(acquireInstanceLock(alias))).message).toContain("does not exist");
   });
 
   it("does not conflict across different work roots", async () => {
@@ -60,79 +141,83 @@ describe.runIf(win32)("acquireInstanceLock", { timeout: 20_000 }, () => {
     await b.release();
   });
 
-  it("can't be blocked by another program creating a pipe name derived from the path alone", async () => {
-    const root = workRoot();
-    const predictable = createHash("sha256")
-      .update(path.resolve(root).toLowerCase())
-      .digest("hex")
-      .slice(0, 32);
-    const squatter = createServer();
-    await new Promise<void>((resolve) =>
-      squatter.listen(`\\\\.\\pipe\\loopback-${predictable}`, resolve),
-    );
-    try {
+  it.runIf(named)(
+    "can't be blocked by another program taking a lock name derived from the path alone",
+    async () => {
+      const root = workRoot();
+      const squatter = createServer();
+      await new Promise<void>((resolve) => squatter.listen(nameFor(hashOf(keyOf(root))), resolve));
+      try {
+        await (await acquireInstanceLock(root)).release();
+      } finally {
+        await new Promise<void>((resolve) => squatter.close(() => resolve()));
+      }
+    },
+  );
+
+  it.runIf(named)(
+    "recovers when another program squats the current lock name (e.g. seen in a pipe listing)",
+    async () => {
+      const root = workRoot();
+      await (await acquireInstanceLock(root)).release(); // creates the salt
+      const salt = readFileSync(`${path.resolve(root)}.lock-salt`, "utf8").trim();
+      // A squatter accepts connections but can't answer the challenge without the salt.
+      const squatter = createServer((socket) => socket.on("data", () => socket.end("nope")));
+      await new Promise<void>((resolve) => squatter.listen(lockName(root, salt), resolve));
+      try {
+        const lock = await acquireInstanceLock(root);
+        // The genuine holder is still recognized afterwards.
+        await refused(acquireInstanceLock(root));
+        await lock.release();
+      } finally {
+        await new Promise<void>((resolve) => squatter.close(() => resolve()));
+      }
+    },
+  );
+
+  it.runIf(named)(
+    "refuses to start when the holder doesn't answer: it may be a stalled instance",
+    async () => {
+      const root = workRoot();
       await (await acquireInstanceLock(root)).release();
+      const salt = readFileSync(`${path.resolve(root)}.lock-salt`, "utf8").trim();
+      const sockets: Socket[] = [];
+      // Accepts, never replies (like a paused process).
+      const silent = createServer((socket) => sockets.push(socket));
+      await new Promise<void>((resolve) => silent.listen(lockName(root, salt), resolve));
+      try {
+        expect((await refused(acquireInstanceLock(root))).message).toContain("not responding");
+        expect(readFileSync(`${path.resolve(root)}.lock-salt`, "utf8").trim()).toBe(salt);
+      } finally {
+        for (const socket of sockets) socket.destroy();
+        await new Promise<void>((resolve) => silent.close(() => resolve()));
+      }
+    },
+    40_000,
+  );
+
+  it.runIf(!win32)("refuses to start while the holder is stopped", async () => {
+    const root = workRoot();
+    const holder = await holderOf(root);
+    try {
+      // A stopped instance still owns its work dirs: it must be refused, never taken over.
+      holder.kill("SIGSTOP");
+      await refused(acquireInstanceLock(root));
     } finally {
-      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+      holder.kill("SIGKILL");
     }
   });
 
-  it("recovers when another program squats the current lock name (e.g. seen in a pipe listing)", async () => {
-    const root = workRoot();
-    await (await acquireInstanceLock(root)).release(); // creates the salt
-    const salt = readFileSync(`${path.resolve(root)}.lock-salt`, "utf8").trim();
-    const name = createHash("sha256")
-      .update(`${path.resolve(root).toLowerCase()}|${salt}`)
-      .digest("hex")
-      .slice(0, 32);
-    // A squatter accepts connections but can't answer the challenge without the salt.
-    const squatter = createServer((socket) => socket.on("data", () => socket.end("nope")));
-    await new Promise<void>((resolve) => squatter.listen(`\\\\.\\pipe\\loopback-${name}`, resolve));
-    try {
-      const lock = await acquireInstanceLock(root);
-      // The genuine holder is still recognized afterwards.
-      await refused(acquireInstanceLock(root));
-      await lock.release();
-    } finally {
-      await new Promise<void>((resolve) => squatter.close(() => resolve()));
-    }
-  }, 20_000);
-
-  it("refuses to start when the holder doesn't answer: it may be a stalled instance", async () => {
+  it("keeps the same lock across restarts and processes", async () => {
     const root = workRoot();
     await (await acquireInstanceLock(root)).release();
-    const salt = readFileSync(`${path.resolve(root)}.lock-salt`, "utf8").trim();
-    const name = createHash("sha256")
-      .update(`${path.resolve(root).toLowerCase()}|${salt}`)
-      .digest("hex")
-      .slice(0, 32);
-    const sockets: Socket[] = [];
-    // Accepts, never replies (like a paused process).
-    const silent = createServer((socket) => sockets.push(socket));
-    await new Promise<void>((resolve) => silent.listen(`\\\\.\\pipe\\loopback-${name}`, resolve));
+    const holder = await holderOf(root);
     try {
-      expect((await refused(acquireInstanceLock(root))).message).toContain("not responding");
-      expect(readFileSync(`${path.resolve(root)}.lock-salt`, "utf8").trim()).toBe(salt);
-    } finally {
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve) => silent.close(() => resolve()));
-    }
-  }, 40_000);
-
-  it("keeps the same lock across restarts and processes (the salt persists)", async () => {
-    const root = workRoot();
-    await (await acquireInstanceLock(root)).release();
-    const holder = spawn(process.execPath, [HOLDER, root], {
-      stdio: ["ignore", "pipe", "inherit"],
-      windowsHide: true,
-    });
-    try {
-      await once(holder.stdout as NodeJS.ReadableStream, "data");
       await refused(acquireInstanceLock(root));
     } finally {
       holder.kill();
     }
-  }, 20_000);
+  });
 
   it("serialises simultaneous attempts: exactly one wins", async () => {
     const root = workRoot();
@@ -146,18 +231,54 @@ describe.runIf(win32)("acquireInstanceLock", { timeout: 20_000 }, () => {
 
   it("is freed by the OS when the holder is killed without cleaning up", async () => {
     const root = workRoot();
-    const holder = spawn(process.execPath, [HOLDER, root], {
-      stdio: ["ignore", "pipe", "inherit"],
-      windowsHide: true,
-    });
+    const holder = await holderOf(root);
     try {
-      await once(holder.stdout as NodeJS.ReadableStream, "data");
       await refused(acquireInstanceLock(root));
-      holder.kill(); // TerminateProcess: no cleanup code runs
+      holder.kill("SIGKILL"); // TerminateProcess on Windows: no cleanup code runs
       await waitForDeath(holder.pid as number);
       await (await acquireInstanceLock(root)).release();
     } finally {
       holder.kill();
     }
-  }, 20_000);
+  });
+
+  it.runIf(process.platform === "linux")("keeps the salt readable only by its owner", async () => {
+    const root = workRoot();
+    await (await acquireInstanceLock(root)).release();
+    expect(statSync(`${path.resolve(root)}.lock-salt`).mode & 0o077).toBe(0);
+  });
+
+  it.runIf(darwin)("keeps the lock file in a private directory beside the work root", async () => {
+    const root = workRoot();
+    const lock = await acquireInstanceLock(root);
+    try {
+      expect(existsSync(lockFileOf(root))).toBe(true);
+      expect(statSync(lockDir(root)).mode & 0o077).toBe(0);
+      // Not under the temp dir: the same work root must map to one lock whatever TMPDIR says.
+      const saved = process.env.TMPDIR;
+      process.env.TMPDIR = scratchRoot();
+      try {
+        await refused(acquireInstanceLock(root));
+      } finally {
+        if (saved === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = saved;
+      }
+    } finally {
+      await lock.release();
+    }
+  });
+
+  it.runIf(darwin)("leaves the lock file in place after release", async () => {
+    const root = workRoot();
+    await (await acquireInstanceLock(root)).release();
+    // Removing it would let the next starter lock a different inode than a current holder's.
+    expect(existsSync(lockFileOf(root))).toBe(true);
+  });
+
+  it.runIf(darwin)("refuses a lock directory that is not private", async () => {
+    const root = workRoot();
+    await (await acquireInstanceLock(root)).release();
+    chmodSync(lockDir(root), 0o755);
+    expect((await refused(acquireInstanceLock(root))).message).toContain("private");
+  });
 });
