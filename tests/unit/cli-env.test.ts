@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildChildEnv } from "../../src/backends/cli/env.ts";
 
+const win32 = process.platform === "win32";
+
 const parent = {
   SystemRoot: "C:\\Windows",
   Path: "C:\\Windows\\System32;C:\\Users\\me\\.local\\bin",
@@ -23,7 +25,7 @@ const parent = {
 describe("buildChildEnv", () => {
   const env = buildChildEnv(parent);
 
-  it("copies allowlisted variables, matching names case-insensitively", () => {
+  it.runIf(win32)("copies allowlisted variables, matching names case-insensitively", () => {
     expect(env).toMatchObject({
       SystemRoot: "C:\\Windows",
       Path: parent.Path,
@@ -34,6 +36,36 @@ describe("buildChildEnv", () => {
       HTTPS_PROXY: parent.HTTPS_PROXY,
       CLAUDE_CONFIG_DIR: parent.CLAUDE_CONFIG_DIR,
     });
+  });
+
+  it.runIf(!win32)("copies allowlisted variables, matching names exactly", () => {
+    const posix = buildChildEnv({
+      HOME: "/home/me",
+      PATH: "/usr/local/bin:/home/me/.local/bin",
+      Path: "/not/a/real/variable",
+      TMPDIR: "/tmp/me",
+      LANG: "en_US.UTF-8",
+      LC_ALL: "C.UTF-8",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+      HTTPS_PROXY: "http://proxy:8080",
+      https_proxy: "http://proxy:8080",
+      CLAUDE_CONFIG_DIR: "/home/me/claude-config",
+      ANTHROPIC_API_KEY: "sk-ant-secret",
+      LOOPBACK_TOKEN: "loopback-secret",
+    });
+    expect(posix).toMatchObject({
+      HOME: "/home/me",
+      PATH: "/usr/local/bin:/home/me/.local/bin",
+      TMPDIR: "/tmp/me",
+      LANG: "en_US.UTF-8",
+      LC_ALL: "C.UTF-8",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+      HTTPS_PROXY: "http://proxy:8080",
+      https_proxy: "http://proxy:8080",
+      CLAUDE_CONFIG_DIR: "/home/me/claude-config",
+    });
+    expect(posix).not.toHaveProperty("Path");
+    expect(JSON.stringify(posix)).not.toMatch(/secret/);
   });
 
   it("never passes Anthropic or loopback credentials, or anything not allowlisted", () => {
@@ -59,9 +91,13 @@ describe("buildChildEnv", () => {
     });
   });
 
-  it("skips variables that are unset", () => {
+  it.runIf(win32)("skips variables that are unset", () => {
     expect(buildChildEnv({ SystemRoot: "C:\\Windows", TEMP: undefined })).not.toHaveProperty(
       "TEMP",
     );
+  });
+
+  it.runIf(!win32)("skips variables that are unset", () => {
+    expect(buildChildEnv({ HOME: "/home/me", TMPDIR: undefined })).not.toHaveProperty("TMPDIR");
   });
 });

@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readFile, realpath, writeFile } from "node:fs/promi
 import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { aclGrantsAccess } from "../file-acl.ts";
 import { StartupError } from "../startup-error.ts";
 
 const WIN32 = process.platform === "win32";
@@ -81,46 +82,57 @@ function abstractName(salt: string): string {
 }
 
 /**
- * The work root as the filesystem knows it, so that a symlink to it names the same lock. A root
- * that does not exist yet cannot be a symlink itself; its parent (created here, as the salt needs
- * it anyway) is resolved instead.
+ * Creates `dir` if needed and checks it is 0700, ours, a real directory and not a symlink, so
+ * nobody else can place or replace what it holds.
  */
-async function canonicalRoot(workRoot: string): Promise<string> {
-  const resolved = path.resolve(workRoot);
-  await mkdir(path.dirname(resolved), { recursive: true });
-  try {
-    return await realpath(resolved);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  // ENOENT is also what a symlink to a missing target gives. Such a root would get a lock of
-  // its own and, once the target exists, share the work dir with the target's lock holder.
-  if (
-    await lstat(resolved).then(
-      () => true,
-      () => false,
-    )
-  ) {
-    throw new StartupError(`The work root ${resolved} is a symlink to a path that does not exist`);
-  }
-  return path.join(await realpath(path.dirname(resolved)), path.basename(resolved));
-}
-
-/**
- * `<workRoot>.lock`, the directory holding the macOS lock file: 0700, ours, a real directory
- * and not a symlink, so nobody else can place or replace the file.
- */
-async function lockDir(workRoot: string): Promise<string> {
-  const dir = `${workRoot}.lock`;
+async function privateDir(dir: string, what: string): Promise<string> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const stat = await lstat(dir);
   if (!stat.isDirectory() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0) {
     throw new StartupError(
-      `The instance lock directory ${dir} must be a private directory (mode 0700) owned by you`,
+      `The ${what} ${dir} must be a private directory (mode 0700) owned by you`,
+    );
+  }
+  // macOS: entries inherited from the parent folder take precedence over the mode bits.
+  if (await aclGrantsAccess(dir)) {
+    throw new StartupError(
+      `The ${what} ${dir} must have no access control entries (chmod -N ${dir})`,
     );
   }
   return dir;
 }
+
+/**
+ * The work root as the filesystem knows it, so that a symlink to it names the same lock. A root
+ * that does not exist yet cannot be a symlink itself; its parent (created here, as the salt needs
+ * it anyway) is resolved instead. That parent holds the salt (on macOS the lock directory), so
+ * it must be private: in a directory others can write to, they could swap in one of their own.
+ */
+async function canonicalRoot(workRoot: string): Promise<string> {
+  const resolved = path.resolve(workRoot);
+  await mkdir(path.dirname(resolved), { recursive: true, mode: 0o700 });
+  const canonical = await realpath(resolved).catch(async (error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+    // ENOENT is also what a symlink to a missing target gives. Such a root would get a lock of
+    // its own and, once the target exists, share the work dir with the target's lock holder.
+    if (
+      await lstat(resolved).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      throw new StartupError(
+        `The work root ${resolved} is a symlink to a path that does not exist`,
+      );
+    }
+    return path.join(await realpath(path.dirname(resolved)), path.basename(resolved));
+  });
+  await privateDir(path.dirname(canonical), "directory holding the instance lock");
+  return canonical;
+}
+
+/** `<workRoot>.lock`, the directory holding the macOS lock file. */
+const lockDir = (workRoot: string) => privateDir(`${workRoot}.lock`, "instance lock directory");
 
 /**
  * macOS: the lock is an exclusive kernel lock (flock) on `<workRoot>.lock/lock`, taken by the

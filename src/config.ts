@@ -107,14 +107,21 @@ const schema = z
       })
       .default("127.0.0.1"),
     LOOPBACK_PORT: int(0, 65_535, DEFAULT_PORT),
-    LOOPBACK_CLAUDE_PATH: z
-      .string()
-      .refine(
-        (value) =>
-          DRIVE_PATH.test(value) && path.win32.basename(value).toLowerCase() === "claude.exe",
-        "must be an absolute drive path to claude.exe, e.g. C:\\Users\\me\\.local\\bin\\claude.exe",
-      )
-      .optional(),
+    LOOPBACK_CLAUDE_PATH: (process.platform === "win32"
+      ? z
+          .string()
+          .refine(
+            (value) =>
+              DRIVE_PATH.test(value) && path.win32.basename(value).toLowerCase() === "claude.exe",
+            "must be an absolute drive path to claude.exe, e.g. C:\\Users\\me\\.local\\bin\\claude.exe",
+          )
+      : z
+          .string()
+          .refine(
+            (value) => path.posix.isAbsolute(value) && path.posix.basename(value) === "claude",
+            "must be an absolute path to claude, e.g. /home/me/.local/bin/claude",
+          )
+    ).optional(),
     LOOPBACK_MAX_CONCURRENCY: int(1, 16, 2),
     LOOPBACK_QUEUE_SIZE: int(0, 1000, 10),
     LOOPBACK_QUEUE_TIMEOUT_MS: int(0, 3_600_000, 60_000),

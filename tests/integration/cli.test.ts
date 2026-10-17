@@ -13,9 +13,12 @@ const VERSION = (
   JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string }
 ).version;
 
-/** An empty file named claude.exe: it resolves, but can't run, so no test reaches the real CLI. */
+/**
+ * An empty file named claude.exe (claude elsewhere): it resolves, but can't run, so no test
+ * reaches the real CLI.
+ */
 function dummyClaude(): string {
-  const file = path.join(scratchRoot(), "claude.exe");
+  const file = path.join(scratchRoot(), win32 ? "claude.exe" : "claude");
   writeFileSync(file, "");
   return file;
 }
@@ -26,7 +29,11 @@ function profile() {
   return {
     appData,
     configFile: path.join(appData, "claude-loopback", "config.env"),
-    env: { APPDATA: appData, LOCALAPPDATA: scratchRoot(), LOOPBACK_CLAUDE_PATH: dummyClaude() },
+    env: {
+      [win32 ? "APPDATA" : "XDG_CONFIG_HOME"]: appData,
+      [win32 ? "LOCALAPPDATA" : "XDG_CACHE_HOME"]: scratchRoot(),
+      LOOPBACK_CLAUDE_PATH: dummyClaude(),
+    },
   };
 }
 
@@ -45,7 +52,7 @@ function cli(args: string[], env: Record<string, string>, cwd = scratchRoot()) {
 
 const tokenIn = (file: string) => /^LOOPBACK_TOKEN=(.*)$/m.exec(readFileSync(file, "utf8"))?.[1];
 
-describe.runIf(win32)("claude-loopback (the npm command)", () => {
+describe("claude-loopback (the npm command)", () => {
   it("on first run creates the settings file with a new token it never prints, then starts", () => {
     const { configFile, env } = profile();
     const result = cli([], env);

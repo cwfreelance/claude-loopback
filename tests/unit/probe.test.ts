@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -44,7 +44,7 @@ describe("resolveClaudePath", () => {
   function dirWith(...files: string[]) {
     const dir = path.join(scratchRoot(), "bin");
     mkdirSync(dir, { recursive: true });
-    for (const file of files) writeFileSync(path.join(dir, file), "");
+    for (const file of files) writeFileSync(path.join(dir, file), "", { mode: 0o755 });
     return dir;
   }
 
@@ -72,6 +72,14 @@ describe("resolveClaudePath", () => {
     );
   });
 
+  it.runIf(!win32)("finds claude on PATH", async () => {
+    const empty = dirWith();
+    const bin = dirWith("claude");
+    expect(await resolveClaudePath(undefined, { PATH: `${empty}:${bin}` })).toBe(
+      path.join(bin, "claude"),
+    );
+  });
+
   it.runIf(win32)("refuses a .cmd shim and says how to fix it", async () => {
     const bin = dirWith("claude.cmd");
     const error = await unavailable(resolveClaudePath(undefined, { PATH: bin }));
@@ -89,6 +97,33 @@ describe("resolveClaudePath", () => {
       : bin.replace(/^([A-Za-z]:)[\\/]/, "$1");
     expect(path.isAbsolute(relative)).toBe(false);
     await unavailable(resolveClaudePath(undefined, { PATH: `.;${relative}` }));
+  });
+
+  it.runIf(!win32)("ignores relative PATH entries", async () => {
+    const bin = dirWith("claude");
+    const relative = path.relative(process.cwd(), bin);
+    expect(path.isAbsolute(relative)).toBe(false);
+    await unavailable(resolveClaudePath(undefined, { PATH: `.:${relative}` }));
+  });
+
+  it.runIf(!win32)("ignores a claude that isn't executable", async () => {
+    const bin = dirWith();
+    writeFileSync(path.join(bin, "claude"), "", { mode: 0o644 });
+    await unavailable(resolveClaudePath(undefined, { PATH: bin }));
+  });
+
+  it.runIf(!win32)("follows a symlink on PATH to the real file", async () => {
+    const real = path.join(dirWith("claude"), "claude");
+    const links = dirWith();
+    symlinkSync(real, path.join(links, "claude"));
+    expect(await resolveClaudePath(undefined, { PATH: links })).toBe(real);
+  });
+
+  it.runIf(!win32)("follows a configured symlink to the real file", async () => {
+    const real = path.join(dirWith("claude"), "claude");
+    const link = path.join(dirWith(), "claude");
+    symlinkSync(real, link);
+    expect(await resolveClaudePath(link, {})).toBe(real);
   });
 
   it("fails when claude.exe is nowhere on PATH", async () => {

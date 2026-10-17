@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../../errors.ts";
 
@@ -34,21 +35,44 @@ async function isFile(file: string): Promise<boolean> {
   }
 }
 
+async function isExecutable(file: string): Promise<boolean> {
+  try {
+    await access(file, constants.X_OK);
+    return (await stat(file)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+const WIN32 = process.platform === "win32";
 const SHIMS = ["claude.cmd", "claude.bat", "claude.ps1"];
 const DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
 
 /**
- * Finds claude.exe once, at boot, so the runner never spawns a bare name (Windows would search
- * the child's temp cwd first). Only drive-absolute PATH entries count; .cmd/.bat shims are
- * refused because they need a shell.
+ * Finds the claude executable once, at boot, so the runner never spawns a bare name (Windows
+ * would search the child's temp cwd first). Only absolute PATH entries count. Windows: claude.exe,
+ * and .cmd/.bat shims are refused because they need a shell. Elsewhere: an executable file named
+ * claude (a wrapper script runs without a shell, so none is refused), with symlinks resolved so
+ * the file checked here is the one every spawn runs.
  */
 export async function resolveClaudePath(
   configured: string | undefined,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<string> {
   if (configured !== undefined) {
-    if (await isFile(configured)) return configured;
+    if (await isFile(configured)) return WIN32 ? configured : realpath(configured);
     throw new AppError("cli_unavailable", "LOOPBACK_CLAUDE_PATH does not point to a file");
+  }
+  if (!WIN32) {
+    for (const dir of (env.PATH ?? "").split(path.delimiter)) {
+      if (!path.isAbsolute(dir)) continue;
+      const file = path.join(dir, "claude");
+      if (await isExecutable(file)) return realpath(file);
+    }
+    throw new AppError(
+      "cli_unavailable",
+      "claude was not found on PATH; install Claude Code or set LOOPBACK_CLAUDE_PATH",
+    );
   }
   const searchPath = Object.entries(env).find(([name]) => name.toUpperCase() === "PATH")?.[1] ?? "";
   let sawShim = false;

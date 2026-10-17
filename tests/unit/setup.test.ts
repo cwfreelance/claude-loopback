@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,8 @@ import { aclSids, grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from ".
 import { scratchRoot } from "../helpers/process.ts";
 
 const win32 = process.platform === "win32";
+const darwin = process.platform === "darwin";
+const homeVar = win32 ? "USERPROFILE" : "HOME";
 
 const SCRIPT = fileURLToPath(new URL("../../scripts/setup.ts", import.meta.url));
 const EXAMPLE = "# Required.\nLOOPBACK_TOKEN=\n\n# Optional.\n# LOOPBACK_PORT=7337\n";
@@ -24,7 +26,7 @@ function run(dir: string, env: Record<string, string> = {}) {
 const tokenIn = (file: string) => /^LOOPBACK_TOKEN=(.*)$/m.exec(readFileSync(file, "utf8"))?.[1];
 
 // Spawns the setup script, which can take seconds on a busy Windows machine.
-describe.runIf(win32)("pnpm run setup", { timeout: 20_000 }, () => {
+describe("pnpm run setup", { timeout: 20_000 }, () => {
   it("creates .env from .env.example with a fresh, valid token it never prints", () => {
     const dir = scratchRoot();
     writeFileSync(path.join(dir, ".env.example"), EXAMPLE);
@@ -68,36 +70,93 @@ describe.runIf(win32)("pnpm run setup", { timeout: 20_000 }, () => {
     expect(result.stdout).toContain("already");
   });
 
-  it("locks a new .env to the current user even in a folder every account can write", () => {
+  it.runIf(win32)(
+    "locks a new .env to the current user even in a folder every account can write",
+    () => {
+      const dir = scratchRoot();
+      makeSharedDir(dir);
+      expect(run(dir).status).toBe(0);
+      expect(onlyOwnerAccess(path.join(dir, ".env"))).toBe(true);
+    },
+    20_000,
+  );
+
+  it.runIf(!win32)("locks a new .env to the current user", () => {
     const dir = scratchRoot();
-    makeSharedDir(dir);
-    expect(run(dir).status).toBe(0);
+    const result = run(dir);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("readable only by your account");
     expect(onlyOwnerAccess(path.join(dir, ".env"))).toBe(true);
-  }, 20_000);
+  });
 
-  it("also locks down an existing .env whose token it keeps", () => {
-    const dir = scratchRoot();
-    makeSharedDir(dir);
-    writeFileSync(
-      path.join(dir, ".env"),
-      "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n",
-    );
-    expect(run(dir).status).toBe(0);
-    expect(aclSids(path.join(dir, ".env"))).not.toContain(SID.authenticatedUsers);
-  }, 20_000);
+  it.runIf(win32)(
+    "also locks down an existing .env whose token it keeps",
+    () => {
+      const dir = scratchRoot();
+      makeSharedDir(dir);
+      writeFileSync(
+        path.join(dir, ".env"),
+        "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n",
+      );
+      expect(run(dir).status).toBe(0);
+      expect(aclSids(path.join(dir, ".env"))).not.toContain(SID.authenticatedUsers);
+    },
+    20_000,
+  );
 
-  it("drops access another account was explicitly given to an existing .env", () => {
+  it.runIf(!win32)("also locks down an existing .env whose token it keeps", () => {
     const dir = scratchRoot();
     const env = path.join(dir, ".env");
     writeFileSync(env, "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n");
-    grantExplicitly(env, SID.authenticatedUsers);
-    expect(aclSids(env)).toContain(SID.authenticatedUsers); // the precondition really holds
+    chmodSync(env, 0o666);
+    expect(onlyOwnerAccess(env)).toBe(false); // the precondition really holds
     expect(run(dir).status).toBe(0);
     expect(onlyOwnerAccess(env)).toBe(true);
     expect(readFileSync(env, "utf8")).toBe(
       "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n",
     );
-  }, 20_000);
+  });
+
+  it.runIf(win32)(
+    "drops access another account was explicitly given to an existing .env",
+    () => {
+      const dir = scratchRoot();
+      const env = path.join(dir, ".env");
+      writeFileSync(env, "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n");
+      grantExplicitly(env, SID.authenticatedUsers);
+      expect(aclSids(env)).toContain(SID.authenticatedUsers); // the precondition really holds
+      expect(run(dir).status).toBe(0);
+      expect(onlyOwnerAccess(env)).toBe(true);
+      expect(readFileSync(env, "utf8")).toBe(
+        "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\n",
+      );
+    },
+    20_000,
+  );
+
+  it.runIf(!win32)(
+    "says how to make the project folder private when other accounts can enter it",
+    () => {
+      const dir = scratchRoot();
+      chmodSync(dir, 0o750);
+      const result = run(dir);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(`chmod 700 ${dir}`);
+      expect(onlyOwnerAccess(path.join(dir, ".env"))).toBe(true); // the file is still private
+    },
+  );
+
+  it.runIf(darwin)(
+    "says how to drop an access control list that lets other accounts into the project folder",
+    () => {
+      const dir = scratchRoot();
+      makeSharedDir(dir);
+      const result = run(dir);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(`chmod -N ${dir}`);
+      expect(onlyOwnerAccess(path.join(dir, ".env"))).toBe(true); // the file is still private
+    },
+  );
 
   it("replaces a token too weak for the server (e.g. from an older version)", () => {
     const dir = scratchRoot();
@@ -112,10 +171,11 @@ describe.runIf(win32)("pnpm run setup", { timeout: 20_000 }, () => {
 
   it("warns when the project isn't inside your user folder", () => {
     const dir = scratchRoot();
-    const outside = run(dir, { USERPROFILE: path.join(scratchRoot(), "someone-else") });
+    const outside = run(dir, { [homeVar]: path.join(scratchRoot(), "someone-else") });
     expect(outside.status).toBe(0);
     expect(outside.stdout).toContain("outside your user folder");
-    expect(run(dir).stdout).not.toContain("outside your user folder");
+    const inside = run(dir, { [homeVar]: path.dirname(dir) });
+    expect(inside.stdout).not.toContain("outside your user folder");
   });
 
   it("creates a minimal .env when there is no .env.example", () => {

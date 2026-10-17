@@ -1,4 +1,11 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.ts";
@@ -7,6 +14,7 @@ import { grantExplicitly, makeSharedDir, onlyOwnerAccess, SID } from "../helpers
 import { scratchRoot } from "../helpers/process.ts";
 
 const win32 = process.platform === "win32";
+const darwin = process.platform === "darwin";
 
 const TEMPLATE = "# Required.\nLOOPBACK_TOKEN=\n# LOOPBACK_PORT=7337\n";
 const KEPT = "LOOPBACK_TOKEN=5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE\nLOOPBACK_PORT=8080\n";
@@ -25,20 +33,16 @@ describe("newToken", () => {
 });
 
 describe("ensureTokenFile", () => {
-  it.runIf(win32)(
-    "creates the file from the template with a new token",
-    async () => {
-      const file = path.join(scratchRoot(), "config.env");
-      expect(await ensureTokenFile(file, TEMPLATE)).toEqual({
-        outcome: "created",
-        restricted: true,
-      });
-      const token = tokenIn(file);
-      usable(token);
-      expect(readFileSync(file, "utf8")).toBe(TEMPLATE.replace("TOKEN=", `TOKEN=${token}`));
-    },
-    20_000,
-  );
+  it("creates the file from the template with a new token", async () => {
+    const file = path.join(scratchRoot(), "config.env");
+    expect(await ensureTokenFile(file, TEMPLATE)).toEqual({
+      outcome: "created",
+      restricted: true,
+    });
+    const token = tokenIn(file);
+    usable(token);
+    expect(readFileSync(file, "utf8")).toBe(TEMPLATE.replace("TOKEN=", `TOKEN=${token}`));
+  }, 20_000);
 
   it("fills an empty token and keeps the other settings", async () => {
     const file = path.join(scratchRoot(), "config.env");
@@ -62,16 +66,12 @@ describe("ensureTokenFile", () => {
     expect(readFileSync(file, "utf8")).toContain("LOOPBACK_PORT=8080\n");
   }, 20_000);
 
-  it.runIf(win32)(
-    "keeps a usable token and the file's contents exactly",
-    async () => {
-      const file = path.join(scratchRoot(), "config.env");
-      writeFileSync(file, KEPT);
-      expect(await ensureTokenFile(file, TEMPLATE)).toEqual({ outcome: "kept", restricted: true });
-      expect(readFileSync(file, "utf8")).toBe(KEPT);
-    },
-    20_000,
-  );
+  it("keeps a usable token and the file's contents exactly", async () => {
+    const file = path.join(scratchRoot(), "config.env");
+    writeFileSync(file, KEPT);
+    expect(await ensureTokenFile(file, TEMPLATE)).toEqual({ outcome: "kept", restricted: true });
+    expect(readFileSync(file, "utf8")).toBe(KEPT);
+  }, 20_000);
 
   it("keeps a usable token written in quotes (Node's env-file parser strips them)", async () => {
     const file = path.join(scratchRoot(), "config.env");
@@ -93,6 +93,65 @@ describe("ensureTokenFile", () => {
       expect(onlyOwnerAccess(file)).toBe(true);
     },
     20_000,
+  );
+
+  it.runIf(!win32)("leaves no other account with access, whatever the file had", async () => {
+    const file = path.join(scratchRoot(), "config.env");
+    writeFileSync(file, KEPT);
+    chmodSync(file, 0o666);
+    expect(await ensureTokenFile(file, TEMPLATE)).toEqual({ outcome: "kept", restricted: true });
+    expect(onlyOwnerAccess(file)).toBe(true);
+  });
+
+  it.runIf(!win32)("creates the settings folder so that only the owner can enter it", async () => {
+    const dir = path.join(scratchRoot(), ".config", "claude-loopback");
+    await ensureTokenFile(path.join(dir, "config.env"), TEMPLATE);
+    expect(onlyOwnerAccess(dir)).toBe(true);
+    expect(onlyOwnerAccess(path.dirname(dir))).toBe(true);
+  });
+
+  it.runIf(!win32)(
+    "reports a folder other accounts can enter, but still writes the file",
+    async () => {
+      const dir = scratchRoot();
+      chmodSync(dir, 0o750);
+      const file = path.join(dir, "config.env");
+      expect(await ensureTokenFile(file, TEMPLATE)).toEqual({
+        outcome: "created",
+        restricted: false,
+      });
+      usable(tokenIn(file));
+      expect(onlyOwnerAccess(file)).toBe(true);
+    },
+  );
+
+  it.runIf(darwin)(
+    "reports a folder whose access control list lets others in, but still writes the file",
+    async () => {
+      const dir = scratchRoot();
+      makeSharedDir(dir);
+      const file = path.join(dir, "config.env");
+      expect(await ensureTokenFile(file, TEMPLATE)).toEqual({
+        outcome: "created",
+        restricted: false,
+      });
+      usable(tokenIn(file));
+      expect(onlyOwnerAccess(file)).toBe(true); // the entries the file inherited are gone
+    },
+  );
+
+  it.runIf(darwin)(
+    "reports a folder reached through a symlink whose access control list lets others in",
+    async () => {
+      const root = scratchRoot();
+      const shared = path.join(root, "shared");
+      mkdirSync(shared, { mode: 0o700 });
+      makeSharedDir(shared);
+      const link = path.join(root, "link");
+      symlinkSync(shared, link);
+      const result = await ensureTokenFile(path.join(link, "config.env"), TEMPLATE);
+      expect(result.restricted).toBe(false);
+    },
   );
 
   it("leaves no temporary files behind", async () => {
