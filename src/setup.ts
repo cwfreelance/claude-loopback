@@ -44,12 +44,26 @@ function canonical(dir: string): string {
 }
 
 /**
- * Where the installed command keeps its settings: %APPDATA%\claude-loopback\config.env, a
- * per-user folder, else %USERPROFILE%\.claude-loopback\config.env. Only drive-absolute paths
- * count: an empty or relative value would point into the current folder (some other project),
- * and a UNC path to a share others may control. Throws if neither is usable.
+ * Where the installed command keeps its settings, in a per-user folder. Windows:
+ * %APPDATA%\claude-loopback\config.env, else %USERPROFILE%\.claude-loopback\config.env. Only
+ * drive-absolute paths count: an empty or relative value would point into the current folder
+ * (some other project), and a UNC path to a share others may control. Elsewhere:
+ * $XDG_CONFIG_HOME/claude-loopback/config.env, else $HOME/.config/claude-loopback/config.env,
+ * again only from absolute paths. Throws if neither is usable.
  */
 export function defaultSettingsFile(env: Readonly<Record<string, string | undefined>>): string {
+  if (process.platform !== "win32") {
+    const { XDG_CONFIG_HOME: configHome, HOME: home } = env;
+    if (configHome !== undefined && path.isAbsolute(configHome)) {
+      return path.join(configHome, "claude-loopback", "config.env");
+    }
+    if (home !== undefined && path.isAbsolute(home)) {
+      return path.join(home, ".config", "claude-loopback", "config.env");
+    }
+    throw new Error(
+      "can't find your home folder: set HOME (or XDG_CONFIG_HOME) to an absolute path like /home/you",
+    );
+  }
   const { APPDATA: appData, USERPROFILE: profile } = env;
   if (appData !== undefined && DRIVE_ABSOLUTE.test(appData)) {
     return path.join(appData, "claude-loopback", "config.env");
@@ -124,11 +138,22 @@ export async function runSetup(options: SetupOptions): Promise<number> {
     }[result.outcome],
   );
   if (result.restricted) ok(`${label} is readable only by your account`);
-  else fail(`could not restrict who can read ${label}`, "keep it under your user folder");
+  else {
+    const dir = path.resolve(options.file, "..");
+    // macOS: an access control entry inherited from the folder would survive chmod 700.
+    const entries = process.platform === "darwin" ? ` && chmod -N ${dir}` : "";
+    fail(
+      `could not restrict who can read ${label}`,
+      process.platform === "win32"
+        ? "keep it under your user folder"
+        : `keep it in a folder only you can enter: chmod 700 ${dir}${entries}`,
+    );
+  }
 
   // In a shared folder (like one made at the root of C:\) other accounts may be able to change
   // the code itself, and so run their code as you. Only a warning: the folder may be private.
-  const home = options.env.USERPROFILE;
+  const win32 = process.platform === "win32";
+  const home = win32 ? options.env.USERPROFILE : options.env.HOME;
   if (
     options.warnOutsideProfile &&
     home !== undefined &&
@@ -136,7 +161,7 @@ export async function runSetup(options: SetupOptions): Promise<number> {
   ) {
     warn(
       "the project is outside your user folder, where other accounts may be able to change it",
-      "move it under your user folder, e.g. C:\\Users\\you\\code",
+      `move it under your user folder, e.g. ${win32 ? "C:\\Users\\you\\code" : "~/code"}`,
     );
   }
 

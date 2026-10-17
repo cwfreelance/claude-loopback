@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { acquireInstanceLock } from "../../src/process/instance-lock.ts";
 import { StartupError } from "../../src/startup-error.ts";
+import { makeSharedDir } from "../helpers/acl.ts";
 import { scratchRoot, waitForDeath } from "../helpers/process.ts";
 
 const win32 = process.platform === "win32";
@@ -292,6 +293,26 @@ describe("acquireInstanceLock", { timeout: 20_000 }, () => {
     }
   });
 
+  it.runIf(!win32)(
+    "creates the directory holding the lock so that only the owner can enter it",
+    async () => {
+      const dir = path.join(scratchRoot(), "cache", "claude-loopback");
+      await (await acquireInstanceLock(path.join(dir, "work"))).release();
+      expect(statSync(dir).mode & 0o077).toBe(0);
+    },
+  );
+
+  it.runIf(!win32)("refuses a work root in a directory other accounts can enter", async () => {
+    // The salt (on macOS the lock directory) sits beside the work root, where anyone who can
+    // write to the directory could swap it for one of their own.
+    const shared = path.join(scratchRoot(), "shared");
+    mkdirSync(shared);
+    chmodSync(shared, 0o755);
+    const message = (await refused(acquireInstanceLock(path.join(shared, "work")))).message;
+    expect(message).toContain(shared);
+    expect(message).toContain("private");
+  });
+
   it.runIf(process.platform === "linux")("keeps the salt readable only by its owner", async () => {
     const root = workRoot();
     await (await acquireInstanceLock(root)).release();
@@ -331,4 +352,15 @@ describe("acquireInstanceLock", { timeout: 20_000 }, () => {
     chmodSync(lockDir(root), 0o755);
     expect((await refused(acquireInstanceLock(root))).message).toContain("private");
   });
+
+  it.runIf(darwin)(
+    "refuses a lock directory whose access control list lets other accounts in",
+    async () => {
+      const root = workRoot();
+      await (await acquireInstanceLock(root)).release();
+      makeSharedDir(lockDir(root));
+      const message = (await refused(acquireInstanceLock(root))).message;
+      expect(message).toContain(`chmod -N ${lockDir(root)}`);
+    },
+  );
 });

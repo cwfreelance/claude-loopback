@@ -5,6 +5,8 @@ import { defaultSettingsFile, readSettings, runSetup, type SetupOptions } from "
 import { scratchRoot } from "../helpers/process.ts";
 
 const win32 = process.platform === "win32";
+const EXE = win32 ? "claude.exe" : "claude";
+const homeVar = win32 ? "USERPROFILE" : "HOME";
 
 function setup(overrides: Partial<SetupOptions> = {}) {
   const lines: string[] = [];
@@ -22,14 +24,14 @@ function setup(overrides: Partial<SetupOptions> = {}) {
   return promise.then((problems) => ({ problems, output: lines.join("\n"), file }));
 }
 
-/** An empty file named claude.exe: it resolves, but can't run (so the real CLI is never used). */
+/** An empty file named claude.exe (claude elsewhere): it resolves, but can't run. */
 function dummyClaude(): string {
-  const file = path.join(scratchRoot(), "claude.exe");
+  const file = path.join(scratchRoot(), EXE);
   writeFileSync(file, "");
   return file;
 }
 
-describe.runIf(win32)("runSetup", () => {
+describe("runSetup", () => {
   it("creates the settings and is ready when checks are skipped", async () => {
     const { problems, output, file } = await setup({ skipChecks: true });
     expect(problems).toBe(0);
@@ -53,7 +55,7 @@ describe.runIf(win32)("runSetup", () => {
 
   it("reports a claude.exe that doesn't exist", async () => {
     const { problems, output } = await setup({
-      env: { LOOPBACK_CLAUDE_PATH: path.join(scratchRoot(), "missing", "claude.exe") },
+      env: { LOOPBACK_CLAUDE_PATH: path.join(scratchRoot(), "missing", EXE) },
     });
     expect(problems).toBe(1);
     expect(output).toContain("install Claude Code");
@@ -81,13 +83,13 @@ describe.runIf(win32)("runSetup", () => {
     const outside = await setup({
       skipChecks: true,
       warnOutsideProfile: true,
-      env: { USERPROFILE: path.join(scratchRoot(), "someone-else") },
+      env: { [homeVar]: path.join(scratchRoot(), "someone-else") },
     });
     expect(outside.problems).toBe(0);
     expect(outside.output).toContain("outside your user folder");
     const notAsked = await setup({
       skipChecks: true,
-      env: { USERPROFILE: path.join(scratchRoot(), "someone-else") },
+      env: { [homeVar]: path.join(scratchRoot(), "someone-else") },
     });
     expect(notAsked.output).not.toContain("outside your user folder");
   }, 20_000);
@@ -116,6 +118,33 @@ describe.runIf(win32)("defaultSettingsFile", () => {
     (profile) => {
       const env = { APPDATA: "", ...(profile === undefined ? {} : { USERPROFILE: profile }) };
       expect(() => defaultSettingsFile(env)).toThrow(/APPDATA/);
+    },
+  );
+});
+
+describe.runIf(!win32)("defaultSettingsFile", () => {
+  it("uses $XDG_CONFIG_HOME/claude-loopback/config.env", () => {
+    expect(defaultSettingsFile({ XDG_CONFIG_HOME: "/home/me/.config" })).toBe(
+      "/home/me/.config/claude-loopback/config.env",
+    );
+  });
+
+  it.each([[undefined], [""], ["relative/dir"]])(
+    "falls back to $HOME/.config when XDG_CONFIG_HOME is %s",
+    (configHome) => {
+      const env = {
+        HOME: "/home/me",
+        ...(configHome === undefined ? {} : { XDG_CONFIG_HOME: configHome }),
+      };
+      expect(defaultSettingsFile(env)).toBe("/home/me/.config/claude-loopback/config.env");
+    },
+  );
+
+  it.each([[undefined], [""], ["relative/dir"]])(
+    "refuses to guess when neither XDG_CONFIG_HOME nor HOME is an absolute path (HOME %s)",
+    (home) => {
+      const env = { XDG_CONFIG_HOME: "", ...(home === undefined ? {} : { HOME: home }) };
+      expect(() => defaultSettingsFile(env)).toThrow(/HOME/);
     },
   );
 });

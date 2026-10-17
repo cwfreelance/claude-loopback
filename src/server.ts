@@ -60,10 +60,25 @@ export interface RunningServer {
 const DRIVE_ABSOLUTE = /^[A-Za-z]:[\\/]/;
 
 /**
- * %LOCALAPPDATA%loopbackwork, or the OS temp dir when LOCALAPPDATA isn't a drive-absolute path:
- * an empty or relative value would otherwise resolve inside the current directory (the repo).
+ * Windows: %LOCALAPPDATA%\loopback\work, or the OS temp dir when LOCALAPPDATA isn't a
+ * drive-absolute path: an empty or relative value would otherwise resolve inside the current
+ * directory (the repo). Elsewhere: $XDG_CACHE_HOME/claude-loopback/work, else
+ * $HOME/.cache/claude-loopback/work, again only from absolute paths; throws if neither is usable
+ * rather than falling back to a temp dir other accounts can write to (/tmp).
  */
 export function defaultWorkRoot(env: Readonly<Record<string, string | undefined>>): string {
+  if (process.platform !== "win32") {
+    const { XDG_CACHE_HOME: cacheHome, HOME: home } = env;
+    if (cacheHome !== undefined && path.isAbsolute(cacheHome)) {
+      return path.join(cacheHome, "claude-loopback", "work");
+    }
+    if (home !== undefined && path.isAbsolute(home)) {
+      return path.join(home, ".cache", "claude-loopback", "work");
+    }
+    throw new StartupError(
+      "can't find your home folder: set HOME (or XDG_CACHE_HOME) to an absolute path like /home/you",
+    );
+  }
   const base = env.LOCALAPPDATA;
   const root = base !== undefined && DRIVE_ABSOLUTE.test(base) ? base : os.tmpdir();
   return path.join(root, "loopback", "work");

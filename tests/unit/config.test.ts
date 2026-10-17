@@ -5,6 +5,8 @@ import { ConfigError, loadConfig, scrubSecrets } from "../../src/config.ts";
 const TOKEN = "5k-Hc8IFDobteldaxMxJ67CukzmSV6uYjPY7MU8Z3UE";
 const TOKEN_DIGEST = createHash("sha256").update(TOKEN).digest();
 const base = { LOOPBACK_TOKEN: TOKEN };
+const win32 = process.platform === "win32";
+const CLAUDE_PATH = win32 ? "C:\\Tools\\Claude\\claude.exe" : "/opt/claude/bin/claude";
 
 function configErrorOf(env: Record<string, string | undefined>): ConfigError {
   try {
@@ -55,7 +57,7 @@ describe("loadConfig", () => {
       LOOPBACK_LOG_LEVEL: "debug",
       LOOPBACK_LOG_PROMPTS: "true",
       LOOPBACK_LOG_FORMAT: "json",
-      LOOPBACK_CLAUDE_PATH: "C:\\Tools\\Claude\\claude.exe",
+      LOOPBACK_CLAUDE_PATH: CLAUDE_PATH,
     });
     expect(config).toMatchObject({
       port: 8080,
@@ -70,7 +72,7 @@ describe("loadConfig", () => {
       logLevel: "debug",
       logPrompts: true,
       logFormat: "json",
-      claudePath: "C:\\Tools\\Claude\\claude.exe",
+      claudePath: CLAUDE_PATH,
     });
   });
 
@@ -80,21 +82,40 @@ describe("loadConfig", () => {
     expect(Object.values(config)).not.toContain(TOKEN);
   });
 
-  it.each([
-    "C:\\Tools\\Claude\\claude.exe",
-    "c:/tools/claude.exe",
-    "C:\\Program Files\\Claude\\CLAUDE.EXE",
-  ])("accepts claude path %s", (claudePath) => {
+  it
+    .runIf(win32)
+    .each([
+      "C:\\Tools\\Claude\\claude.exe",
+      "c:/tools/claude.exe",
+      "C:\\Program Files\\Claude\\CLAUDE.EXE",
+    ])("accepts claude path %s", (claudePath) => {
     expect(loadConfig({ ...base, LOOPBACK_CLAUDE_PATH: claudePath }).claudePath).toBe(claudePath);
   });
 
-  it.each([
+  it.runIf(!win32).each(["/usr/local/bin/claude", "/home/me/.local/bin/claude"])(
+    "accepts claude path %s",
+    (claudePath) => {
+      expect(loadConfig({ ...base, LOOPBACK_CLAUDE_PATH: claudePath }).claudePath).toBe(claudePath);
+    },
+  );
+
+  it.runIf(win32).each([
     ["drive-relative", "/claude.exe"],
     ["UNC share", "\\\\server\\share\\claude.exe"],
     ["UNC with slashes", "//server/share/claude.exe"],
     ["device path", "\\\\?\\C:\\tools\\claude.exe"],
     ["alternate data stream", "C:\\x\\a.txt:claude.exe"],
     ["other executable", "C:\\Tools\\other.exe"],
+  ])("rejects %s claude path", (_name, claudePath) => {
+    const error = configErrorOf({ ...base, LOOPBACK_CLAUDE_PATH: claudePath });
+    expect(error.issues.some((issue) => issue.startsWith("LOOPBACK_CLAUDE_PATH:"))).toBe(true);
+  });
+
+  it.runIf(!win32).each([
+    ["relative", "bin/claude"],
+    ["tilde (nothing expands it in a settings file)", "~/.local/bin/claude"],
+    ["other executable", "/usr/bin/other"],
+    ["Windows executable name", "/usr/bin/claude.exe"],
   ])("rejects %s claude path", (_name, claudePath) => {
     const error = configErrorOf({ ...base, LOOPBACK_CLAUDE_PATH: claudePath });
     expect(error.issues.some((issue) => issue.startsWith("LOOPBACK_CLAUDE_PATH:"))).toBe(true);
